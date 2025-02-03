@@ -1,0 +1,46 @@
+{
+    "emulator": {
+        "executable_path": "mgba",
+        "window_title": "mGBA",
+        "key_mappings": {
+            "a": "x",
+            "b": "z",
+            "start": "enter",
+            "select": "backspace",
+            "up": "up",
+            "down": "down",
+            "left": "left",
+            "right": "right",
+            "l": "a",
+            "r": "s"
+        },
+        "save_state_dir": "saves",
+        "speed_settings": {
+            "default_speed": 1.0,
+            "battle_speed": 2.0,
+            "training_speed": 3.0,
+            "travel_speed": 2.0,
+            "use_turbo_for_grinding": true,
+            "frame_skip": 0
+        }
+    },
+    "game": {
+        "rom_path": "",
+        "game_version": "emerald",
+        "memory_map_version": "emerald",
+        "save_file_path": null
+    },
+    "ai": {
+        "battle_strategy": "aggressive",
+        "catch_strategy": "all",
+        "training_strategy": "efficient",
+        "max_level": 100,
+        "min_hp_percent": 30.0,
+        "max_money_spend": 10000
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "pokemon_player.log",
+        "console": true
+    }
+} 

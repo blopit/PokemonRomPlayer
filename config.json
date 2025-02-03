@@ -1,0 +1,33 @@
+{
+    "emulator": {
+        "executable_path": "mgba",
+        "window_title": "mGBA",
+        "key_mappings": {
+            "a": "x",
+            "b": "z",
+            "start": "enter",
+            "select": "backspace",
+            "up": "up",
+            "down": "down",
+            "left": "left",
+            "right": "right",
+            "l": "a",
+            "r": "s"
+        },
+        "save_state_dir": "saves"
+    },
+    "game": {
+        "rom_path": "",
+        "game_version": "emerald",
+        "memory_map_version": "emerald",
+        "save_file_path": null
+    },
+    "ai": {
+        "battle_strategy": "aggressive",
+        "catch_strategy": "all",
+        "training_strategy": "efficient",
+        "max_level": 100,
+        "min_hp_percent": 30.0,
+        "max_money_spend": 10000
+    }
+} 

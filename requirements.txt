@@ -1,36 +1,42 @@
-# Web scraping
+# Core dependencies
+numpy>=1.21.0
+opencv-python>=4.5.0
+pyautogui>=0.9.53
+pytesseract>=0.3.8
+Pillow>=8.0.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=3.0.0
+
+# Utilities
+python-dotenv>=0.19.0
+pyyaml>=6.0.0
+tqdm>=4.65.0
+colorlog>=6.7.0
+
+# Type checking
+mypy>=0.910
+types-PyYAML>=6.0.0
+types-Pillow>=8.0.0
+
+# Testing and development
+black>=24.1.0
+flake8>=7.0.0
+
+# Tools dependencies
 playwright>=1.41.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
 html5lib>=1.1
+openai>=1.8.0
+anthropic>=0.8.0
 
-# Search engine
+# Web scraping and search
 duckduckgo-search>=7.2.1
-
-# LLM integration
-openai>=1.59.8 # o1 support
-anthropic>=0.42.0
-python-dotenv>=1.0.0
 
 # Testing
 unittest2>=1.1.0
-pytest>=8.0.0
-pytest-asyncio>=0.23.5
-
-# Google Generative AI
-google-generativeai
-
-# gRPC, for Google Generative AI preventing WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-grpcio==1.60.1
-
-# Data processing and visualization
-yfinance>=0.2.36
-pandas>=2.1.4
-matplotlib>=3.8.2
-seaborn>=0.13.1
-
-# Tabulate for pretty-printing tables
-tabulate
 
 # Utilities
 aiohttp==3.9.3
-requests>=2.28.0
-uuid
