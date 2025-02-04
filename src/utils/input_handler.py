@@ -1,67 +1,147 @@
-from typing import Dict, Optional
-import pyautogui
+"""
+Input handler for emulator controls
+"""
+
 import time
+import pyautogui
+import platform
+import subprocess
+from typing import Dict, Optional
+from utils.logger import get_logger
+
+# Get logger for this module
+logger = get_logger("pokemon_player")
+
+# Key mappings for GBA controls
+KEY_MAPPINGS = {
+    'up': 'up',
+    'down': 'down', 
+    'left': 'left',
+    'right': 'right',
+    'a': 'x',  # A button mapped to X
+    'b': 'z',  # B button mapped to Z
+    'l': 'a',  # L button mapped to A
+    'r': 's',  # R button mapped to S
+    'start': 'enter',
+    'select': 'backspace'
+}
 
 class InputHandler:
-    """Handles input commands for the emulator."""
+    """Handles keyboard input for the emulator"""
     
-    # Default key mappings for mGBA
-    DEFAULT_KEY_MAPPINGS = {
-        'a': 'x',
-        'b': 'z',
-        'start': 'enter',
-        'select': 'backspace',
-        'up': 'up',
-        'down': 'down',
-        'left': 'left',
-        'right': 'right',
-        'l': 'a',
-        'r': 's'
-    }
-    
-    def __init__(self, key_mappings: Optional[Dict[str, str]] = None):
-        """Initialize input handler with optional custom key mappings.
+    def __init__(self):
+        """Initialize input handler"""
+        # Set up pyautogui
+        pyautogui.PAUSE = 0.1  # Add small delay between actions
+        pyautogui.FAILSAFE = True
+        
+    def press_button(self, button: str, duration: float = 0.1):
+        """Press a button for the specified duration.
         
         Args:
-            key_mappings: Optional dictionary mapping GBA buttons to keyboard keys
-        """
-        self.key_mappings = key_mappings or self.DEFAULT_KEY_MAPPINGS
-    
-    def press_button(self, button: str, duration: float = 0.1) -> None:
-        """Press and hold a button for the specified duration.
-        
-        Args:
-            button: The button to press ('a', 'b', 'start', etc.)
+            button: Button to press ('up', 'down', 'left', 'right', 'a', 'b', 'l', 'r', 'start', 'select')
             duration: How long to hold the button in seconds
         """
-        if button.lower() not in self.key_mappings:
-            raise ValueError(f"Unknown button: {button}")
-        
-        key = self.key_mappings[button.lower()]
-        pyautogui.keyDown(key)
-        time.sleep(duration)
-        pyautogui.keyUp(key)
-    
-    def press_buttons(self, buttons: list[str], duration: float = 0.1) -> None:
+        try:
+            # Get the mapped key
+            key = KEY_MAPPINGS.get(button.lower())
+            if not key:
+                logger.error(f"Unknown button: {button}")
+                return
+                
+            logger.debug(f"Pressing {button} (mapped to {key}) for {duration}s")
+            
+            # Press and hold the key
+            pyautogui.keyDown(key)
+            time.sleep(duration)
+            pyautogui.keyUp(key)
+            
+        except Exception as e:
+            logger.error(f"Error pressing button {button}: {e}")
+            # Make sure to release the key
+            try:
+                pyautogui.keyUp(key)
+            except:
+                pass
+            raise
+            
+    def press_buttons(self, buttons: list, duration: float = 0.1):
         """Press multiple buttons simultaneously.
         
         Args:
             buttons: List of buttons to press
             duration: How long to hold the buttons in seconds
         """
-        keys = []
-        for button in buttons:
-            if button.lower() not in self.key_mappings:
-                raise ValueError(f"Unknown button: {button}")
-            keys.append(self.key_mappings[button.lower()])
+        try:
+            # Get mapped keys
+            keys = []
+            for button in buttons:
+                key = KEY_MAPPINGS.get(button.lower())
+                if key:
+                    keys.append(key)
+                else:
+                    logger.error(f"Unknown button: {button}")
+                    
+            if not keys:
+                return
+                
+            logger.debug(f"Pressing {buttons} (mapped to {keys}) for {duration}s")
+            
+            # Press all keys
+            for key in keys:
+                pyautogui.keyDown(key)
+                
+            time.sleep(duration)
+            
+            # Release all keys
+            for key in reversed(keys):
+                pyautogui.keyUp(key)
+                
+        except Exception as e:
+            logger.error(f"Error pressing buttons {buttons}: {e}")
+            # Make sure to release all keys
+            try:
+                for key in keys:
+                    pyautogui.keyUp(key)
+            except:
+                pass
+            raise
+    
+    def focus_window(self, window_title: str) -> bool:
+        """Focus the emulator window.
         
-        for key in keys:
-            pyautogui.keyDown(key)
-        
-        time.sleep(duration)
-        
-        for key in reversed(keys):
-            pyautogui.keyUp(key)
+        Args:
+            window_title: Title of the window to focus
+            
+        Returns:
+            True if window was focused successfully
+        """
+        try:
+            if platform.system() == "Darwin":
+                # On macOS, use AppleScript to focus window
+                script = f'''
+                tell application "System Events"
+                    tell process "{window_title}"
+                        set frontmost to true
+                    end tell
+                end tell
+                '''
+                subprocess.run(['osascript', '-e', script], check=True)
+            else:
+                # On other platforms, use pyautogui's window functions
+                windows = pyautogui.getWindowsWithTitle(window_title)
+                if not windows:
+                    logger.warning(f"Could not find window with title: {window_title}")
+                    return False
+                windows[0].activate()
+            
+            # Give window time to focus
+            time.sleep(0.5)
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Could not focus window: {e}")
+            return False
     
     def press_sequence(self, sequence: list[tuple[str, float]]) -> None:
         """Press a sequence of buttons with specified durations.
@@ -80,7 +160,8 @@ class InputHandler:
             duration: How long to hold the direction in seconds
         """
         if direction.lower() not in ['up', 'down', 'left', 'right']:
-            raise ValueError(f"Invalid direction: {direction}")
+            logger.warning(f"Invalid direction: {direction}")
+            return
         
         self.press_button(direction, duration)
     

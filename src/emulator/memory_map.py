@@ -15,7 +15,7 @@ class MemoryAddresses:
     """Memory addresses for various game data."""
     # Game state addresses
     game_state: int
-    battle_type: int
+    battle_state: int  # Renamed from battle_type
     menu_state: int
     
     # Player data
@@ -29,7 +29,7 @@ class MemoryAddresses:
     party_data_start: int
     
     # Battle data
-    battle_type: int
+    battle_flags: int  # Renamed from battle_type
     opponent_pokemon_data: int
     active_pokemon_data: int
 
@@ -41,7 +41,7 @@ class MemoryMap:
         GameVersion.EMERALD: MemoryAddresses(
             # Game state
             game_state=0x03004E50,
-            battle_type=0x0202402C,
+            battle_state=0x0202402C,
             menu_state=0x03004E54,
             
             # Player data
@@ -55,7 +55,7 @@ class MemoryMap:
             party_data_start=0x0202402C,
             
             # Battle data
-            battle_type=0x0202402C,
+            battle_flags=0x0202402C,
             opponent_pokemon_data=0x02024744,
             active_pokemon_data=0x02023F8C
         ),

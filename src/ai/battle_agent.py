@@ -1,296 +1,155 @@
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+"""
+Battle management agent
+"""
 
-from utils.logger import logger
-from emulator.interface import EmulatorInterface
-from emulator.game_state import GameState, GameMode, Pokemon, BattleState
-from .agent import Agent, AgentAction
+from typing import List, Dict, Any, Optional
+from utils.command_queue import CommandQueue, GameCommand
+from utils.logger import get_logger
+from ai.agent import Agent
+from utils.llm_api import get_provider
+import json
 
-@dataclass
-class BattleStrategy:
-    """Configuration for battle decision making."""
-    aggressive: bool = True  # Prefer attacking over status moves
-    switch_threshold: float = 0.3  # HP percentage to trigger switching
-    use_items: bool = True  # Whether to use items in battle
-    catch_wild: bool = True  # Whether to try catching wild Pokemon
+logger = get_logger("pokemon_player")
+
+BATTLE_PROMPT = """You are a Pokemon battle expert. Your task is to make strategic battle decisions based on the current state.
+
+Current screen state:
+{screen_state}
+
+Game state:
+{game_state}
+
+Battle context:
+{context}
+
+Generate battle commands considering:
+1. Type matchups
+2. Move effectiveness
+3. Pokemon stats and status
+4. HP management
+5. Strategic switching
+6. Item usage
+
+Return your response in this exact format:
+{
+    "commands": [
+        {"type": "button_press", "button": "up", "duration": 0.1, "delay": 0.0},
+        {"type": "button_press", "button": "a", "duration": 0.1, "delay": 0.2},
+        ...
+    ],
+    "reasoning": "Explanation of battle strategy and move choices"
+}"""
 
 class BattleAgent(Agent):
-    """Agent responsible for handling Pokemon battles."""
+    """Agent specialized in battle management"""
     
-    # Action types
-    ATTACK = "attack"
-    SWITCH = "switch"
-    USE_ITEM = "use_item"
-    RUN = "run"
-    CATCH = "catch"
-    
-    def __init__(self, emulator: EmulatorInterface, strategy: Optional[BattleStrategy] = None):
-        """Initialize the battle agent.
+    def __init__(self, provider: str = "openai"):
+        """Initialize battle agent.
         
         Args:
-            emulator: EmulatorInterface instance
-            strategy: Optional battle strategy configuration
+            provider: LLM provider to use
         """
-        super().__init__(emulator, name="BattleAgent")
-        self.strategy = strategy or BattleStrategy()
-    
-    def analyze_state(self, state: GameState) -> Optional[AgentAction]:
-        """Analyze the battle state and decide on an action.
+        super().__init__("BattleAgent")
+        self.llm = get_provider(provider)
+        
+    def can_handle(self, screen_state: Dict[str, Any], game_state: Dict[str, Any]) -> bool:
+        """Check if current state is a battle that needs handling.
         
         Args:
-            state: Current game state
+            screen_state: Current screen analysis results
+            game_state: Current game memory state
             
         Returns:
-            Action to take in battle
+            True if in a battle state
         """
-        if not state.is_in_battle() or state.battle is None:
-            return None
-        
-        # Get battle participants
-        active_pokemon = state.battle.active_pokemon
-        opponent = state.battle.opponent_pokemon
-        
-        if active_pokemon is None or opponent is None:
-            logger.error("Battle state missing Pokemon data")
-            return None
-        
-        # Check if we should try to catch the Pokemon
-        if (self.strategy.catch_wild and 
-            state.battle.is_wild_battle and 
-            self._should_catch_pokemon(opponent)):
-            return AgentAction(
-                action_type=self.CATCH,
-                parameters={},
-                priority=3
-            )
-        
-        # Check if we need to switch Pokemon
-        if (active_pokemon.hp / active_pokemon.max_hp <= self.strategy.switch_threshold and
-            self._has_healthy_pokemon(state)):
-            switch_target = self._choose_switch_target(state, opponent)
-            if switch_target is not None:
-                return AgentAction(
-                    action_type=self.SWITCH,
-                    parameters={"target_index": switch_target},
-                    priority=2
-                )
-        
-        # Choose best move
-        best_move = self._choose_best_move(active_pokemon, opponent)
-        if best_move is not None:
-            return AgentAction(
-                action_type=self.ATTACK,
-                parameters={"move_index": best_move},
-                priority=1
-            )
-        
-        # If no good options, try to run from wild battles
-        if state.battle.is_wild_battle:
-            return AgentAction(
-                action_type=self.RUN,
-                parameters={},
-                priority=0
-            )
-        
-        return None
-    
-    def execute_action(self, action: AgentAction) -> bool:
-        """Execute a battle action.
-        
-        Args:
-            action: Action to execute
-            
-        Returns:
-            True if action was successful
-        """
-        try:
-            if action.action_type == self.ATTACK:
-                return self._execute_attack(action.parameters["move_index"])
-            
-            elif action.action_type == self.SWITCH:
-                return self._execute_switch(action.parameters["target_index"])
-            
-            elif action.action_type == self.USE_ITEM:
-                return self._execute_use_item(
-                    action.parameters["item_id"],
-                    action.parameters.get("target_index")
-                )
-            
-            elif action.action_type == self.RUN:
-                return self._execute_run()
-            
-            elif action.action_type == self.CATCH:
-                return self._execute_catch()
-            
-            else:
-                logger.error(f"Unknown action type: {action.action_type}")
-                return False
-            
-        except Exception as e:
-            self.handle_error(e)
-            return False
-    
-    def _should_catch_pokemon(self, pokemon: Pokemon) -> bool:
-        """Determine if we should try to catch a Pokemon.
-        
-        Args:
-            pokemon: The opponent Pokemon
-            
-        Returns:
-            True if we should try to catch it
-        """
-        # TODO: Implement catch decision logic
-        return True
-    
-    def _has_healthy_pokemon(self, state: GameState) -> bool:
-        """Check if we have any healthy Pokemon to switch to.
-        
-        Args:
-            state: Current game state
-            
-        Returns:
-            True if we have healthy Pokemon
-        """
-        if not state.player.party:
-            return False
-        
-        return any(p for p in state.player.party 
-                  if not p.is_fainted() and 
-                  p.hp / p.max_hp > self.strategy.switch_threshold)
-    
-    def _choose_switch_target(self, state: GameState, opponent: Pokemon) -> Optional[int]:
-        """Choose the best Pokemon to switch to.
-        
-        Args:
-            state: Current game state
-            opponent: Opponent's Pokemon
-            
-        Returns:
-            Index of Pokemon to switch to, or None if no good target
-        """
-        # TODO: Implement switch target selection logic
-        return None
-    
-    def _choose_best_move(self, active: Pokemon, opponent: Pokemon) -> Optional[int]:
-        """Choose the best move to use.
-        
-        Args:
-            active: Our active Pokemon
-            opponent: Opponent's Pokemon
-            
-        Returns:
-            Index of move to use, or None if no good moves
-        """
-        # TODO: Implement move selection logic
-        return 0 if active.moves else None
-    
-    def _execute_attack(self, move_index: int) -> bool:
-        """Execute an attack move.
-        
-        Args:
-            move_index: Index of move to use
-            
-        Returns:
-            True if successful
-        """
-        try:
-            # Navigate to move
-            self.emulator.press_button('a')  # Enter fight menu
-            
-            # Select move (assuming default cursor position)
-            if move_index == 1:
-                self.emulator.press_button('right')
-            elif move_index == 2:
-                self.emulator.press_button('down')
-            elif move_index == 3:
-                self.emulator.press_button('right')
-                self.emulator.press_button('down')
-            
-            # Execute move
-            self.emulator.press_button('a')
+        # Check if in battle based on screen analysis
+        if screen_state.get("screen_type") == "battle":
             return True
             
-        except Exception as e:
-            logger.error(f"Error executing attack: {e}")
-            return False
-    
-    def _execute_switch(self, target_index: int) -> bool:
-        """Execute a Pokemon switch.
-        
-        Args:
-            target_index: Index of Pokemon to switch to
-            
-        Returns:
-            True if successful
-        """
-        try:
-            # Open Pokemon menu
-            self.emulator.press_buttons(['select', 'right'])
-            
-            # Navigate to target Pokemon
-            for _ in range(target_index):
-                self.emulator.press_button('down')
-            
-            # Select Pokemon
-            self.emulator.press_button('a')
+        # Check if in battle based on memory
+        if game_state.get("battle_type"):
             return True
             
-        except Exception as e:
-            logger.error(f"Error executing switch: {e}")
-            return False
-    
-    def _execute_use_item(self, item_id: int, target_index: Optional[int] = None) -> bool:
-        """Execute using an item.
-        
-        Args:
-            item_id: ID of item to use
-            target_index: Optional target Pokemon index
-            
-        Returns:
-            True if successful
-        """
-        # TODO: Implement item usage
         return False
-    
-    def _execute_run(self) -> bool:
-        """Execute running from battle.
         
+    def generate_commands(self, 
+                         screen_state: Dict[str, Any],
+                         game_state: Dict[str, Any],
+                         context: Optional[Dict[str, Any]] = None) -> List[GameCommand]:
+        """Generate battle commands.
+        
+        Args:
+            screen_state: Current screen analysis results
+            game_state: Current game memory state
+            context: Optional additional context
+            
         Returns:
-            True if successful
+            List of commands for battle actions
         """
         try:
-            # Navigate to Run option
-            self.emulator.press_button('right')
-            self.emulator.press_button('down')
+            # Enrich context with battle-specific info
+            battle_context = context or {}
+            if game_state:
+                # Add active Pokemon data
+                active_pokemon = game_state.get("active_pokemon", {})
+                battle_context["active_pokemon"] = active_pokemon
+                
+                # Add opponent Pokemon data
+                opponent_pokemon = game_state.get("opponent_pokemon", {})
+                battle_context["opponent_pokemon"] = opponent_pokemon
+                
+                # Add party status
+                party_data = game_state.get("party", {})
+                battle_context["party"] = party_data
             
-            # Select Run
-            self.emulator.press_button('a')
-            return True
+            # Format prompt with current state
+            prompt = BATTLE_PROMPT.format(
+                screen_state=screen_state,
+                game_state=game_state,
+                context=battle_context
+            )
             
+            # Get battle commands from LLM
+            response = self.llm.query(prompt)
+            
+            # Parse commands
+            try:
+                # Extract JSON from response
+                start = response.find('{')
+                end = response.rfind('}') + 1
+                if start >= 0 and end > start:
+                    json_str = response[start:end]
+                    data = json.loads(json_str)
+                else:
+                    raise ValueError("No JSON object found in response")
+                    
+                # Log reasoning
+                if "reasoning" in data:
+                    logger.info(f"Battle strategy reasoning: {data['reasoning']}")
+                    
+                # Convert to commands
+                commands = []
+                for cmd in data.get("commands", []):
+                    if cmd["type"] == "button_press":
+                        command = CommandQueue.create_button_press(
+                            button=cmd["button"],
+                            duration=cmd.get("duration", 0.1),
+                            delay=cmd.get("delay", 0.0)
+                        )
+                        commands.append(command)
+                    elif cmd["type"] == "wait":
+                        command = CommandQueue.create_wait(
+                            duration=cmd["duration"],
+                            delay=cmd.get("delay", 0.0)
+                        )
+                        commands.append(command)
+                        
+                return commands
+                
+            except Exception as e:
+                logger.error(f"Error parsing battle commands: {e}")
+                return []
+                
         except Exception as e:
-            logger.error(f"Error executing run: {e}")
-            return False
-    
-    def _execute_catch(self) -> bool:
-        """Execute catching a Pokemon.
-        
-        Returns:
-            True if successful
-        """
-        try:
-            # Navigate to Bag
-            self.emulator.press_button('right')
-            
-            # Select Pokeballs pocket
-            self.emulator.press_button('a')
-            
-            # Select first available ball
-            self.emulator.press_button('a')
-            
-            # Confirm throw
-            self.emulator.press_button('a')
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error executing catch: {e}")
-            return False 
+            logger.error(f"Error generating battle strategy: {e}")
+            return [] 

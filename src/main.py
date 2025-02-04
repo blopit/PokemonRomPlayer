@@ -6,14 +6,14 @@ It initializes all components and manages the main game loop.
 """
 
 import argparse
-import logging
-import os
+import json
 import sys
 import time
+import os
+import logging
 from pathlib import Path
-from typing import Optional
 
-from utils.logger import logger
+from utils.logger import init_logger, get_logger, setup_logging
 from utils.config_manager import ConfigManager
 from emulator.interface import EmulatorInterface
 from game_state.manager import GameStateManager
@@ -21,115 +21,128 @@ from agents.crew_manager import CrewManager
 from emulator.game_state import GameState, GameMode
 from ai.agent_manager import AgentManager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("pokemon_player.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+logger = logging.getLogger('pokemon_player')
 
-def parse_arguments() -> argparse.Namespace:
+def parse_args():
     """Parse command line arguments.
     
     Returns:
-        Parsed arguments
+        argparse.Namespace: Parsed arguments
     """
-    parser = argparse.ArgumentParser(description="Pokemon ROM Player")
-    parser.add_argument("--rom", type=str, help="Path to Pokemon ROM file")
-    parser.add_argument("--config", type=str, help="Path to configuration file")
-    parser.add_argument("--save-dir", type=str, help="Directory for save states")
-    parser.add_argument("--log-dir", type=str, help="Directory for log files")
+    parser = argparse.ArgumentParser(description='Pokemon ROM Player')
+    parser.add_argument('--config', type=str, required=True,
+                       help='Path to configuration file')
     return parser.parse_args()
 
-def initialize_system(args: argparse.Namespace) -> tuple[ConfigManager, EmulatorInterface, AgentManager]:
-    """Initialize the system components.
+def load_config(config_path):
+    """Load configuration from file.
     
     Args:
-        args: Command line arguments
+        config_path: Path to config file
         
     Returns:
-        Tuple of (ConfigManager, EmulatorInterface, AgentManager)
+        dict: Configuration settings
     """
-    # Initialize configuration
-    config_manager = ConfigManager(args.config)
-    
-    # Update configuration from command line arguments
-    if args.rom:
-        config_manager.update_game_config(rom_path=args.rom)
-    if args.save_dir:
-        config_manager.update_emulator_config(save_state_dir=args.save_dir)
-    
-    # Validate configuration
-    if not config_manager.validate_config():
-        logger.error("Invalid configuration")
-        sys.exit(1)
-    
-    # Initialize emulator
-    game_config = config_manager.get_game_config()
-    emulator_config = config_manager.get_emulator_config()
-    
-    emulator = EmulatorInterface(
-        rom_path=game_config.rom_path,
-        save_state_dir=emulator_config.save_state_dir
-    )
-    
-    # Initialize agent manager
-    agent_manager = AgentManager(emulator, config_manager.get_ai_config())
-    
-    return config_manager, emulator, agent_manager
-
-def main() -> None:
-    """Main entry point for the Pokemon ROM player."""
-    # Parse command line arguments
-    args = parse_arguments()
-    
-    # Set up logging
-    if args.log_dir:
-        logger.__init__(log_dir=args.log_dir)
-    
-    logger.info("Starting Pokemon ROM Player")
-    
     try:
+        with open(config_path) as f:
+            config = json.load(f)
+            
+        # Validate required fields
+        required_fields = ['rom_path', 'emulator_path', 'ai_config']
+        for field in required_fields:
+            if field not in config:
+                raise ValueError(f"Missing required config field: {field}")
+                
+        return config
+        
+    except Exception as e:
+        logger.error(f"Failed to load config: {str(e)}")
+        raise
+
+def initialize_system(config):
+    """Initialize system components.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        tuple: (EmulatorInterface, AgentManager)
+    """
+    try:
+        logger.info("Initializing system components...")
+        
+        # Initialize emulator
+        emulator = EmulatorInterface(
+            rom_path=config['rom_path'],
+            emulator_path=config['emulator_path']
+        )
+        
+        # Initialize agent manager
+        agent_manager = AgentManager(
+            emulator=emulator,
+            config=config['ai_config']
+        )
+        
+        return emulator, agent_manager
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize system: {str(e)}")
+        raise
+
+def cleanup(emulator=None):
+    """Clean up system resources.
+    
+    Args:
+        emulator: EmulatorInterface instance
+    """
+    try:
+        logger.info("Cleaning up...")
+        if emulator:
+            emulator.stop()
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")
+    finally:
+        logger.info("Shutdown complete")
+
+def main():
+    """Main program entry point."""
+    try:
+        # Set up logging
+        setup_logging()
+        logger.info("Starting Pokemon ROM Player")
+        
+        # Parse arguments and load config
+        args = parse_args()
+        config = load_config(args.config)
+        
         # Initialize system
-        config_manager, emulator, agent_manager = initialize_system(args)
+        emulator, agent_manager = initialize_system(config)
         
         # Start emulator
-        if not emulator.start():
-            logger.error("Failed to start emulator")
-            sys.exit(1)
+        emulator.start()
         
-        logger.info("System initialized successfully")
-        
-        # Main game loop
-        last_update = time.time()
-        update_interval = 1.0 / 30  # 30 FPS
-        
-        while True:
-            current_time = time.time()
-            if current_time - last_update < update_interval:
-                continue
+        # Main loop
+        try:
+            while True:
+                # Get current game state
+                game_state = emulator.get_game_state()
+                
+                # Let agent manager handle the state
+                agent_manager.update(game_state)
+                
+                # Small delay to prevent busy waiting
+                time.sleep(0.1)
+                
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal")
             
-            # Get current game state
-            game_state = emulator.get_game_state()
+        finally:
+            cleanup(emulator)
             
-            # Update agents
-            if not agent_manager.update(game_state):
-                # No agent took action, small delay to prevent busy loop
-                time.sleep(0.016)
-            
-            last_update = current_time
-            
-    except KeyboardInterrupt:
-        logger.info("Shutting down...")
     except Exception as e:
-        logger.exception(f"Unexpected error: {e}")
-    finally:
-        # Clean up
-        emulator.stop()
-        logger.info("Cleanup complete")
+        logger.error(f"Critical error: {str(e)}")
+        cleanup()
+        sys.exit(1)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 

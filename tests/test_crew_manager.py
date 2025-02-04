@@ -5,12 +5,14 @@ This module contains tests for the CrewManager class.
 """
 
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 import tempfile
 import os
 from pathlib import Path
+from typing import Dict, Any, Optional
 
-from src.emulator.interface import EmulatorInterface, GameState
+from src.emulator.interface import EmulatorInterface
+from src.emulator.game_state import GameState, GameMode, BattleState
 from src.game_state.manager import GameStateManager
 from src.agents.crew_manager import CrewManager
 from src.agents.battle_agent import BattleAgent
@@ -19,18 +21,33 @@ from src.agents.base_agent import BaseAgent
 class MockAgent(BaseAgent):
     """Mock agent for testing."""
     
-    def __init__(self, *args, can_handle_state=False, act_success=True, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.can_handle_state = can_handle_state
-        self.act_success = act_success
-        self.act_called = False
+    def __init__(self, emulator: EmulatorInterface, config: Dict[str, Any], can_handle_state: bool = False):
+        """Initialize mock agent.
+        
+        Args:
+            emulator: EmulatorInterface instance
+            config: Configuration dictionary
+            can_handle_state: Whether the agent can handle states
+        """
+        super().__init__("mock_agent", emulator)
+        self.config = config
+        self._can_handle_state = can_handle_state
+        self.analyze_called = False
+        self.execute_called = False
     
-    def can_handle(self, state):
-        return self.can_handle_state
+    def can_handle(self, state: GameState) -> bool:
+        """Check if agent can handle state."""
+        return self._can_handle_state
     
-    def act(self, state):
-        self.act_called = True
-        return self.act_success
+    def analyze_state(self, state: GameState) -> Optional[Dict[str, Any]]:
+        """Analyze game state."""
+        self.analyze_called = True
+        return {"action": "test_action"}
+    
+    def execute_action(self, action_params: Dict[str, Any]) -> bool:
+        """Execute action."""
+        self.execute_called = True
+        return True
 
 class TestCrewManager(unittest.TestCase):
     """Test cases for CrewManager."""
@@ -52,8 +69,9 @@ class TestCrewManager(unittest.TestCase):
         """Test crew manager initialization."""
         self.assertEqual(self.crew.emulator, self.mock_emulator)
         self.assertEqual(self.crew.state_manager, self.mock_state_manager)
-        self.assertIsInstance(self.crew.agents, dict)
+        self.assertIsNotNone(self.crew.agents)
         self.assertIsNone(self.crew.active_agent)
+        self.assertIsNone(self.crew.last_state)
         
         # Verify default agents were initialized
         self.assertIn("battle", self.crew.agents)
@@ -84,37 +102,41 @@ class TestCrewManager(unittest.TestCase):
         self.assertNotIn("test_agent", self.crew.agents)
     
     def test_get_appropriate_agent(self):
-        """Test agent selection."""
-        # Create test state
-        test_state = GameState()
+        """Test agent selection based on game state."""
+        # Create mock agents
+        battle_agent = MockAgent(self.mock_emulator, {}, True)
+        battle_agent.can_handle = lambda state: state.mode == GameMode.BATTLE
         
-        # Create mock agents with different capabilities
-        agent1 = MockAgent(self.mock_emulator, {}, can_handle_state=True)
-        agent2 = MockAgent(self.mock_emulator, {}, can_handle_state=False)
+        dialog_agent = MockAgent(self.mock_emulator, {}, True)
+        dialog_agent.can_handle = lambda state: state.mode == GameMode.DIALOG
         
         # Register agents
-        self.crew.register_agent("agent1", agent1)
-        self.crew.register_agent("agent2", agent2)
+        self.crew.register_agent("battle", battle_agent)
+        self.crew.register_agent("dialog", dialog_agent)
         
-        # Get appropriate agent
-        selected_agent = self.crew.get_appropriate_agent(test_state)
+        # Test battle state
+        battle_state = GameState(mode=GameMode.BATTLE, battle=BattleState())
+        agent = self.crew.get_appropriate_agent(battle_state)
+        self.assertEqual(agent, battle_agent)
         
-        # Verify selection
-        self.assertEqual(selected_agent, agent1)
+        # Test dialog state
+        dialog_state = GameState(mode=GameMode.DIALOG)
+        agent = self.crew.get_appropriate_agent(dialog_state)
+        self.assertEqual(agent, dialog_agent)
+        
+        # Test unknown state
+        unknown_state = GameState(mode=GameMode.UNKNOWN)
+        agent = self.crew.get_appropriate_agent(unknown_state)
+        self.assertIsNone(agent)
     
     def test_update_success(self):
         """Test successful update cycle."""
         # Set up test state
-        test_state = GameState(in_battle=True)
+        test_state = GameState(mode=GameMode.BATTLE, battle=BattleState())
         self.mock_state_manager.current_state = test_state
         
         # Create mock agent
-        mock_agent = MockAgent(
-            self.mock_emulator,
-            {},
-            can_handle_state=True,
-            act_success=True
-        )
+        mock_agent = MockAgent(self.mock_emulator, {})
         self.crew.register_agent("test_agent", mock_agent)
         
         # Perform update
@@ -122,22 +144,19 @@ class TestCrewManager(unittest.TestCase):
         
         # Verify update
         self.assertTrue(result)
-        self.assertTrue(mock_agent.act_called)
+        self.assertTrue(mock_agent.analyze_called)
+        self.assertTrue(mock_agent.execute_called)
         self.assertEqual(self.crew.active_agent, mock_agent)
     
     def test_update_failure(self):
         """Test update cycle failure."""
         # Set up test state
-        test_state = GameState(in_battle=True)
+        test_state = GameState(mode=GameMode.BATTLE, battle=BattleState())
         self.mock_state_manager.current_state = test_state
         
         # Create mock agent that fails
-        mock_agent = MockAgent(
-            self.mock_emulator,
-            {},
-            can_handle_state=True,
-            act_success=False
-        )
+        mock_agent = MockAgent(self.mock_emulator, {}, True)
+        mock_agent.analyze_state = MagicMock(return_value=None)
         self.crew.register_agent("test_agent", mock_agent)
         
         # Perform update
@@ -145,47 +164,31 @@ class TestCrewManager(unittest.TestCase):
         
         # Verify update
         self.assertFalse(result)
-        self.assertTrue(mock_agent.act_called)
+        self.assertTrue(mock_agent.analyze_called)
     
     def test_state_change_detection(self):
         """Test state change detection."""
         # Create initial state
-        initial_state = GameState(
-            in_battle=False,
-            in_menu=False,
-            current_map=1
-        )
+        initial_state = GameState(mode=GameMode.OVERWORLD)
         self.crew.last_state = initial_state
         
         # Test with same state
         self.assertFalse(self.crew._state_changed(initial_state))
         
         # Test with different battle state
-        new_state = GameState(
-            in_battle=True,
-            in_menu=False,
-            current_map=1
-        )
+        new_state = GameState(mode=GameMode.BATTLE, battle=BattleState())
+        self.assertTrue(self.crew._state_changed(new_state))
+        
+        # Test with different dialog state
+        new_state = GameState(mode=GameMode.DIALOG)
         self.assertTrue(self.crew._state_changed(new_state))
         
         # Test with different menu state
-        new_state = GameState(
-            in_battle=False,
-            in_menu=True,
-            current_map=1
-        )
-        self.assertTrue(self.crew._state_changed(new_state))
-        
-        # Test with different map
-        new_state = GameState(
-            in_battle=False,
-            in_menu=False,
-            current_map=2
-        )
+        new_state = GameState(mode=GameMode.MENU)
         self.assertTrue(self.crew._state_changed(new_state))
     
     def test_get_status(self):
-        """Test status reporting."""
+        """Test status retrieval."""
         # Create and activate a mock agent
         mock_agent = MockAgent(self.mock_emulator, {})
         self.crew.register_agent("test_agent", mock_agent)
@@ -213,12 +216,8 @@ class TestCrewManager(unittest.TestCase):
         
         # Test update with agent error
         self.mock_state_manager.update.side_effect = None
-        mock_agent = MockAgent(
-            self.mock_emulator,
-            {},
-            can_handle_state=True
-        )
-        mock_agent.act = Mock(side_effect=Exception("Agent error"))
+        mock_agent = MockAgent(self.mock_emulator, {}, True)
+        mock_agent.analyze_state = MagicMock(side_effect=Exception("Agent error"))
         self.crew.register_agent("test_agent", mock_agent)
         
         result = self.crew.update()

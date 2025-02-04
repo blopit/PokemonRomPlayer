@@ -1,46 +1,23 @@
 {
-    "emulator": {
-        "executable_path": "mgba",
-        "window_title": "mGBA",
-        "key_mappings": {
-            "a": "x",
-            "b": "z",
-            "start": "enter",
-            "select": "backspace",
-            "up": "up",
-            "down": "down",
-            "left": "left",
-            "right": "right",
-            "l": "a",
-            "r": "s"
-        },
-        "save_state_dir": "saves",
-        "speed_settings": {
-            "default_speed": 1.0,
-            "battle_speed": 2.0,
-            "training_speed": 3.0,
-            "travel_speed": 2.0,
-            "use_turbo_for_grinding": true,
-            "frame_skip": 0
+    "rom_path": "roms/moemon star em v1.1c.gba",
+    "emulator_path": "/usr/local/bin/mgba-qt",
+    "ai_config": {
+        "battle_strategy": "aggressive",
+        "navigation_mode": "explore",
+        "switch_threshold": 0.3,
+        "status_move_weight": 0.5,
+        "catch_priority": ["rare", "new", "strong"],
+        "training": {
+            "min_level": 5,
+            "max_level": 100,
+            "preferred_locations": ["grass", "cave", "water"]
         }
     },
-    "game": {
-        "rom_path": "",
-        "game_version": "emerald",
-        "memory_map_version": "emerald",
-        "save_file_path": null
-    },
-    "ai": {
-        "battle_strategy": "aggressive",
-        "catch_strategy": "all",
-        "training_strategy": "efficient",
-        "max_level": 100,
-        "min_hp_percent": 30.0,
-        "max_money_spend": 10000
-    },
     "logging": {
-        "level": "INFO",
-        "file": "pokemon_player.log",
-        "console": true
+        "level": "DEBUG",
+        "file": "logs/pokemon_player.log",
+        "console": true,
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "date_format": "%Y-%m-%d %H:%M:%S"
     }
 } 

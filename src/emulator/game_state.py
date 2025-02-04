@@ -1,80 +1,135 @@
+"""
+Game State Module
+
+This module defines classes for representing the game state.
+"""
+
 from dataclasses import dataclass
-from typing import List, Dict, Optional
 from enum import Enum
+from typing import Optional, Dict, Any, List
 
 class GameMode(Enum):
-    """Different modes/states the game can be in."""
-    OVERWORLD = "overworld"
-    BATTLE = "battle"
-    MENU = "menu"
-    DIALOG = "dialog"
+    """Enum for different game modes/states."""
     UNKNOWN = "unknown"
+    BATTLE = "battle"
+    DIALOG = "dialog"
+    MENU = "menu"
+    OVERWORLD = "overworld"
 
 @dataclass
 class Pokemon:
-    """Represents a Pokemon's data."""
-    species_id: int
+    """Pokemon data."""
+    species: str
     level: int
     hp: int
     max_hp: int
-    status: Optional[str] = None
-    moves: List[str] = None
+    moves: List[str]
     
     def is_fainted(self) -> bool:
-        """Check if the Pokemon is fainted."""
+        """Check if Pokemon is fainted."""
         return self.hp <= 0
 
 @dataclass
-class BattleState:
-    """Represents the state during a battle."""
-    opponent_pokemon: Optional[Pokemon] = None
-    active_pokemon: Optional[Pokemon] = None
-    is_wild_battle: bool = False
-    turn_count: int = 0
-
-@dataclass
-class PlayerState:
-    """Represents the player's current state."""
+class Player:
+    """Player data."""
     x_position: int = 0
     y_position: int = 0
-    direction: str = "down"
-    money: int = 0
-    badges: List[str] = None
     party: List[Pokemon] = None
-    items: Dict[str, int] = None
+    
+    def __post_init__(self):
+        if self.party is None:
+            self.party = []
+
+@dataclass
+class BattleState:
+    """Class for tracking battle state."""
+    player_pokemon: Optional[Dict[str, Any]] = None
+    opponent_pokemon: Optional[Dict[str, Any]] = None
+    available_moves: List[str] = None
+    turn_count: int = 0
+    is_wild_battle: bool = False
 
 @dataclass
 class GameState:
-    """Represents the complete game state."""
+    """Class for tracking overall game state."""
     mode: GameMode = GameMode.UNKNOWN
-    player: PlayerState = None
+    success: bool = False
+    analysis: str = ""
     battle: Optional[BattleState] = None
-    
-    def __post_init__(self):
-        """Initialize default values for nested objects."""
-        if self.player is None:
-            self.player = PlayerState(
-                badges=[],
-                party=[],
-                items={}
-            )
-    
-    def update_from_memory(self, memory_values: Dict[str, Any]) -> None:
-        """Update the game state using memory values from the emulator.
-        
-        Args:
-            memory_values: Dictionary of memory addresses and their values
-        """
-        # TODO: Implement memory parsing logic
-        pass
+    location: Optional[str] = None
+    inventory: Optional[Dict[str, int]] = None
+    party: Optional[List[Dict[str, Any]]] = None
+    pokedex: Optional[Dict[str, bool]] = None
+    badges: Optional[List[bool]] = None
+    money: Optional[int] = None
+    play_time: Optional[float] = None
+    save_state: Optional[Dict[str, Any]] = None
+    player: Optional[Player] = None
+    error: Optional[str] = None
     
     def is_in_battle(self) -> bool:
-        """Check if currently in a battle."""
+        """Check if in battle mode."""
         return self.mode == GameMode.BATTLE
     
-    def can_catch_pokemon(self) -> bool:
-        """Check if conditions are right to catch a Pokemon."""
-        return (self.is_in_battle() and 
-                self.battle is not None and 
-                self.battle.is_wild_battle and
-                self.battle.opponent_pokemon is not None) 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GameState':
+        """Create GameState from dictionary data.
+        
+        Args:
+            data: Dictionary containing game state data
+            
+        Returns:
+            GameState instance
+        """
+        # Determine mode
+        if data.get("is_battle"):
+            mode = GameMode.BATTLE
+        elif data.get("is_menu"):
+            mode = GameMode.MENU
+        elif data.get("is_dialog"):
+            mode = GameMode.DIALOG
+        elif data.get("is_overworld"):
+            mode = GameMode.OVERWORLD
+        else:
+            mode = GameMode.UNKNOWN
+        
+        # Create player data
+        player_data = data.get("player")
+        if player_data and isinstance(player_data, dict):
+            player = Player(
+                x_position=player_data.get("x_position", 0),
+                y_position=player_data.get("y_position", 0),
+                party=player_data.get("party", [])
+            )
+        elif player_data and isinstance(player_data, Player):
+            player = player_data
+        else:
+            player = Player()
+        
+        # Create battle state if in battle
+        battle = None
+        if mode == GameMode.BATTLE:
+            battle = BattleState(
+                player_pokemon=data.get("player_pokemon"),
+                opponent_pokemon=data.get("opponent_pokemon"),
+                available_moves=data.get("available_moves", []),
+                turn_count=data.get("turn_count", 0),
+                is_wild_battle=data.get("is_wild_battle", False)
+            )
+        
+        return cls(
+            mode=mode,
+            player=player,
+            battle=battle,
+            success=data.get("success", True),
+            error=data.get("error"),
+            analysis=data.get("analysis"),
+            location=data.get("location"),
+            inventory=data.get("inventory"),
+            party=data.get("party"),
+            pokedex=data.get("pokedex"),
+            badges=data.get("badges"),
+            money=data.get("money"),
+            play_time=data.get("play_time"),
+            save_state=data.get("save_state")
+        ) 

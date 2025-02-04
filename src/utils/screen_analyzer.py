@@ -1,145 +1,207 @@
+"""
+Screen analyzer for Pokemon game state detection
+"""
+
 import cv2
 import numpy as np
-from typing import Optional, Tuple, List
-import pytesseract
+import pyautogui
 from PIL import Image
+import platform
+import subprocess
+import tempfile
+import os
+from utils.logger import get_logger
+from typing import Dict
+
+logger = get_logger("pokemon_player")
 
 class ScreenAnalyzer:
-    """Analyzes screenshots from the emulator for game state information."""
+    """Analyzes game screen to detect state and extract information"""
     
-    # Screen regions of interest (ROIs) for different game elements
-    BATTLE_TEXT_ROI = (136, 384, 368, 416)  # Region for battle text
-    MENU_ROI = (0, 320, 240, 416)          # Region for menu options
-    HP_BAR_ROI = (128, 64, 240, 80)        # Region for HP bar in battle
-    
-    def __init__(self):
-        """Initialize the screen analyzer."""
-        self.previous_frame = None
-        self.frame_diff_threshold = 30  # Threshold for detecting screen changes
-    
-    def preprocess_image(self, image: np.ndarray) -> np.ndarray:
-        """Preprocess image for better text recognition.
+    def __init__(self, pid: int = None):
+        """Initialize screen analyzer
         
         Args:
-            image: Input image in BGR format
-            
-        Returns:
-            Preprocessed image
+            pid: Process ID of mGBA window (optional)
         """
-        # Convert to grayscale
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        self.pid = pid
+        self.is_macos = platform.system() == "Darwin"
         
-        # Apply thresholding to get black text on white background
-        _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+        # Expected GBA screen dimensions (scaled)
+        self.expected_width = 480  
+        self.expected_height = 320
         
-        return thresh
-    
-    def extract_text(self, image: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None) -> str:
-        """Extract text from a specific region of the screen.
+    def analyze_screen(self, screen: np.ndarray) -> Dict:
+        """Analyze the current screen state to determine game context.
         
         Args:
-            image: Screenshot image
-            roi: Optional region of interest (x1, y1, x2, y2)
+            screen: Processed screenshot array
             
         Returns:
-            Extracted text
+            Dictionary containing screen analysis results
         """
-        if roi:
-            x1, y1, x2, y2 = roi
-            image = image[y1:y2, x1:x2]
+        try:
+            # Initialize state dictionary
+            state = {
+                "in_battle": False,
+                "menu_state": None,
+                "has_dialog": False,
+                "text_content": None,
+                "screen_type": "unknown"
+            }
+            
+            # Detect battle state
+            state["in_battle"] = self.detect_battle_state(screen)
+            
+            # Detect menu state if not in battle
+            if not state["in_battle"]:
+                state["menu_state"] = self.detect_menu_state(screen)
+                
+            # Check for dialog box
+            state["has_dialog"] = self.detect_dialog_box(screen)
+            
+            # Extract text if dialog box present
+            if state["has_dialog"]:
+                state["text_content"] = self.extract_text(screen)
+                
+            # Determine screen type
+            if state["in_battle"]:
+                state["screen_type"] = "battle"
+            elif state["menu_state"]:
+                state["screen_type"] = "menu"
+            elif state["has_dialog"]:
+                state["screen_type"] = "dialog"
+            else:
+                state["screen_type"] = "overworld"
+                
+            return state
+            
+        except Exception as e:
+            logger.error(f"Error analyzing screen: {e}")
+            return {
+                "error": str(e),
+                "screen_type": "error"
+            }
+            
+    def get_screen_state(self) -> np.ndarray:
+        """Capture and process current game screen state.
         
-        # Preprocess image
-        processed = self.preprocess_image(image)
-        
-        # Convert to PIL Image for Tesseract
-        pil_image = Image.fromarray(processed)
-        
-        # Extract text
-        text = pytesseract.image_to_string(pil_image, config='--psm 6')
-        return text.strip()
-    
-    def detect_screen_change(self, current_frame: np.ndarray) -> bool:
-        """Detect if the screen has changed significantly.
+        Returns:
+            Numpy array containing the processed screenshot
+        """
+        try:
+            # Create temp file for screenshot
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                temp_path = tmp.name
+                
+            if self.is_macos:
+                # Focus mGBA window
+                script = """
+                tell application "System Events"
+                    set mgbaProcess to first process whose unix id is %d
+                    set frontmost of mgbaProcess to true
+                end tell
+                """ % self.pid
+                
+                subprocess.run(['osascript', '-e', script], check=True)
+                
+                # Take screenshot of focused window
+                subprocess.run(['screencapture', '-w', temp_path], check=True)
+                
+            else:
+                # For other platforms, use pyautogui
+                screenshot = pyautogui.screenshot()
+                screenshot.save(temp_path)
+                
+            # Read and process the image
+            img = cv2.imread(temp_path)
+            if img is None:
+                raise Exception("Failed to read screenshot")
+                
+            # Remove temp file
+            os.unlink(temp_path)
+            
+            # Get image dimensions
+            height, width = img.shape[:2]
+            logger.debug(f"Screenshot dimensions: {width}x{height}")
+            
+            # Calculate center crop coordinates
+            target_ratio = self.expected_width / self.expected_height
+            current_ratio = width / height
+            
+            if current_ratio > target_ratio:
+                # Image is too wide
+                new_width = int(height * target_ratio)
+                x = (width - new_width) // 2
+                y = 0
+                w = new_width
+                h = height
+            else:
+                # Image is too tall
+                new_height = int(width / target_ratio)
+                x = 0
+                y = (height - new_height) // 2
+                w = width
+                h = new_height
+                
+            # Crop image
+            cropped = img[y:y+h, x:x+w]
+            
+            # Resize to expected dimensions
+            resized = cv2.resize(cropped, (self.expected_width, self.expected_height))
+            
+            logger.debug(f"Processed image to {self.expected_width}x{self.expected_height}")
+            return resized
+            
+        except Exception as e:
+            logger.error(f"Error capturing screen: {e}")
+            raise
+            
+    def detect_battle_state(self, screen: np.ndarray) -> bool:
+        """Detect if currently in a battle.
         
         Args:
-            current_frame: Current screenshot
+            screen: Processed screenshot array
             
         Returns:
-            True if significant change detected
+            True if in battle, False otherwise
         """
-        if self.previous_frame is None:
-            self.previous_frame = current_frame
-            return True
+        # TODO: For now, return False until we implement proper detection
+        return False
         
-        # Calculate frame difference
-        diff = cv2.absdiff(current_frame, self.previous_frame)
-        mean_diff = np.mean(diff)
-        
-        # Update previous frame
-        self.previous_frame = current_frame
-        
-        return mean_diff > self.frame_diff_threshold
-    
-    def detect_battle_state(self, image: np.ndarray) -> bool:
-        """Detect if the game is in a battle state.
+    def detect_menu_state(self, screen: np.ndarray) -> str:
+        """Detect current menu state.
         
         Args:
-            image: Screenshot image
+            screen: Processed screenshot array
             
         Returns:
-            True if in battle state
+            Menu state string
         """
-        # Extract battle text region
-        battle_text = self.extract_text(image, self.BATTLE_TEXT_ROI)
+        # TODO: For now, return None until we implement proper detection
+        return None
         
-        # Check for common battle text patterns
-        battle_indicators = [
-            "wild", "appeared", "wants to fight", "sent out",
-            "used", "foe", "trainer"
-        ]
-        
-        return any(indicator.lower() in battle_text.lower() 
-                  for indicator in battle_indicators)
-    
-    def get_hp_percentage(self, image: np.ndarray) -> float:
-        """Calculate the HP percentage from the HP bar.
+    def detect_dialog_box(self, screen: np.ndarray) -> bool:
+        """Detect if dialog box is present.
         
         Args:
-            image: Screenshot image
+            screen: Processed screenshot array
             
         Returns:
-            HP percentage (0-100)
+            True if dialog box present, False otherwise
         """
-        # Extract HP bar region
-        hp_region = image[self.HP_BAR_ROI[1]:self.HP_BAR_ROI[3],
-                         self.HP_BAR_ROI[0]:self.HP_BAR_ROI[2]]
+        # TODO: For now, return False until we implement proper detection
+        return False
         
-        # Convert to HSV and isolate green/yellow/red components
-        hsv = cv2.cvtColor(hp_region, cv2.COLOR_BGR2HSV)
-        
-        # Create mask for HP bar colors
-        lower_green = np.array([40, 40, 40])
-        upper_red = np.array([180, 255, 255])
-        mask = cv2.inRange(hsv, lower_green, upper_red)
-        
-        # Calculate percentage of filled HP bar
-        total_pixels = mask.size
-        filled_pixels = np.count_nonzero(mask)
-        
-        return (filled_pixels / total_pixels) * 100 if total_pixels > 0 else 0
-    
-    def get_menu_options(self, image: np.ndarray) -> List[str]:
-        """Extract menu options from the screen.
+    def extract_text(self, screen: np.ndarray, region: tuple = None) -> str:
+        """Extract text from screen region.
         
         Args:
-            image: Screenshot image
+            screen: Processed screenshot array
+            region: Optional tuple of (x,y,w,h) defining region to extract text from
             
         Returns:
-            List of menu option texts
+            Extracted text string
         """
-        # Extract menu region
-        menu_text = self.extract_text(image, self.MENU_ROI)
-        
-        # Split into lines and clean up
-        options = [line.strip() for line in menu_text.split('\n') if line.strip()]
-        return options 
+        # TODO: For now, return None until we implement proper text extraction
+        return None 

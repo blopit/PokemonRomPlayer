@@ -12,7 +12,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from src.emulator.interface import EmulatorInterface, GameState
+from src.emulator.interface import EmulatorInterface
+from src.emulator.game_state import GameState, GameMode, BattleState
 from src.game_state.manager import GameStateManager, Progress
 
 class TestGameStateManager(unittest.TestCase):
@@ -42,10 +43,9 @@ class TestGameStateManager(unittest.TestCase):
         """Test state update functionality."""
         # Create a test game state
         test_state = GameState(
-            player_x=100,
-            player_y=200,
-            current_map=1,
-            in_battle=True
+            mode=GameMode.BATTLE,
+            battle=BattleState(),
+            success=True
         )
         
         # Mock emulator response
@@ -116,8 +116,8 @@ class TestGameStateManager(unittest.TestCase):
         """Test state history size limiting."""
         # Create test states
         test_states = [
-            GameState(player_x=i, player_y=i)
-            for i in range(self.manager.max_history + 10)
+            GameState(mode=GameMode.OVERWORLD)
+            for _ in range(self.manager.max_history + 10)
         ]
         
         # Add states to history
@@ -130,8 +130,8 @@ class TestGameStateManager(unittest.TestCase):
         
         # Verify we have the most recent states
         self.assertEqual(
-            self.manager.state_history[-1].player_x,
-            test_states[-1].player_x
+            self.manager.state_history[-1].mode,
+            test_states[-1].mode
         )
     
     def test_get_objective(self):

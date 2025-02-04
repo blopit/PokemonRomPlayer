@@ -1,144 +1,77 @@
 # Pokemon ROM Player
 
-An advanced Pokemon ROM player system with AI capabilities that can autonomously play through Pokemon games, complete the Pokedex, and train Pokemon.
+An AI-powered automation system for playing Pokemon games using computer vision and LLM-based decision making.
 
-## Features
+## Setup
 
-- Automated gameplay through Pokemon games
-- Battle AI with strategic decision making
-- Automatic Pokemon catching and Pokedex completion
-- Pokemon training and leveling system
-- Save state management
-- Configurable AI behaviors
-- Detailed logging and progress tracking
-
-## Requirements
-
-- Python 3.10 or higher
-- mGBA emulator
-- Pokemon ROM file (not included)
-- Required Python packages (see `requirements.txt`)
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/PokemonRomPlayer.git
-cd PokemonRomPlayer
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install required packages:
+1. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Install mGBA:
-```bash
-# On macOS with Homebrew:
-brew install mgba
+2. Install mGBA emulator:
+- Download from: https://mgba.io/downloads.html
+- Install and make sure it's working
 
-# On Ubuntu/Debian:
-sudo apt-get install mgba
-
-# On Windows:
-# Download from https://mgba.io/downloads.html
-```
-
-## Configuration
-
-1. Create a configuration file (or modify the default `config.json`):
-```json
-{
-    "emulator": {
-        "executable_path": "mgba",
-        "window_title": "mGBA",
-        "save_state_dir": "saves"
-    },
-    "game": {
-        "rom_path": "path/to/your/pokemon.gba",
-        "game_version": "emerald",
-        "save_file_path": null
-    },
-    "ai": {
-        "battle_strategy": "aggressive",
-        "catch_strategy": "all",
-        "training_strategy": "efficient"
-    }
-}
-```
-
-2. Ensure your ROM file is in the correct location and update the configuration accordingly.
+3. Prepare your Pokemon ROM:
+- Load your Pokemon ROM in mGBA
+- Make sure the game is running and visible
 
 ## Usage
 
-Run the program with default configuration:
+Run the automation:
 ```bash
-python src/main.py
+python run_game.py
 ```
 
-Run with specific ROM file and save directory:
+Optional arguments:
+- `--window`: Emulator window name (default: "mGBA")
+- `--debug`: Enable debug logging
+
+Example with options:
 ```bash
-python src/main.py --rom path/to/rom.gba --save-dir path/to/saves
+python run_game.py --window "mGBA" --debug
 ```
 
-Additional options:
-```bash
-python src/main.py --help
-```
+## How it Works
+
+The system uses a sense-process-actuate loop:
+
+1. **Sense**: Captures screenshots of the game window
+2. **Process**: Uses AI to analyze the game state and decide actions
+3. **Actuate**: Executes actions via keyboard inputs
+
+The AI will:
+- Complete the main story campaign
+- Catch Pokemon to complete the Pokedex
+- Level up caught Pokemon
+
+## Controls
+
+- Press Ctrl+C to stop the automation
 
 ## Project Structure
 
 ```
-PokemonRomPlayer/
+.
+├── run_game.py          # Main entry point
 ├── src/
-│   ├── ai/            # AI decision making and strategies
-│   ├── emulator/      # Emulator interface and game state
-│   ├── utils/         # Utility functions and helpers
-│   └── tests/         # Test files
-├── logs/              # Log files
-├── saves/             # Save states
-├── config.json        # Configuration file
-└── requirements.txt   # Python dependencies
+│   ├── automation/      # Core automation logic
+│   ├── utils/          # Utility functions
+│   └── ai/             # AI/ML components
+├── data/
+│   └── screenshots/    # Captured screenshots
+└── requirements.txt    # Python dependencies
 ```
 
-## Development
+## Requirements
 
-### Running Tests
-```bash
-pytest src/tests/
-```
+- Python 3.8+
+- mGBA emulator
+- Pokemon ROM (not provided)
+- macOS (for keyboard control)
 
-### Code Style
-The project uses:
-- Black for code formatting
-- Flake8 for linting
-- MyPy for type checking
+## Debugging
 
-Run style checks:
-```bash
-black src/
-flake8 src/
-mypy src/
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Disclaimer
-
-This project is for educational purposes only. Pokemon is a registered trademark of Nintendo/Creatures Inc./GAME FREAK inc. This project is not affiliated with or endorsed by Nintendo, Creatures Inc., or GAME FREAK inc.
+Screenshots are saved in `data/screenshots/` for debugging.
+Enable debug logging with `--debug` for more detailed output.

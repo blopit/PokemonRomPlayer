@@ -1,13 +1,22 @@
+"""
+Agent Manager Module
+
+This module manages AI agents and their interactions with the game.
+"""
+
 from typing import Dict, List, Optional, Type
 from dataclasses import dataclass, field
 
-from utils.logger import logger
+from utils.logger import get_logger
 from utils.config_manager import AIConfig
 from emulator.interface import EmulatorInterface
 from emulator.game_state import GameState, GameMode
 from .agent import Agent, AgentAction
 from .battle_agent import BattleAgent, BattleStrategy
-from .navigation_agent import NavigationAgent
+from .navigation_agent import NavigationAgent, NavigationMode
+
+# Get logger for this module
+logger = get_logger("ai")
 
 @dataclass
 class AgentPriority:
@@ -18,38 +27,58 @@ class AgentPriority:
     dialog: int = 90
 
 @dataclass
+class AIConfig:
+    """Configuration for AI behavior."""
+    battle_strategy: BattleStrategy = BattleStrategy.BALANCED
+    navigation_mode: NavigationMode = NavigationMode.EXPLORE
+    switch_threshold: float = 0.3
+    status_move_weight: float = 0.4
+
+@dataclass
 class AgentManager:
-    """Manages and coordinates multiple AI agents."""
+    """Manages AI agents and their interactions with the game."""
     
     emulator: EmulatorInterface
-    config: AIConfig
-    priorities: AgentPriority = field(default_factory=AgentPriority)
+    config: Dict = field(default_factory=dict)
     
     def __post_init__(self):
-        """Initialize agents after construction."""
-        # Create agents
+        """Initialize agents after dataclass initialization."""
+        # Parse configuration
+        ai_config = AIConfig()
+        if "battle_strategy" in self.config:
+            try:
+                ai_config.battle_strategy = BattleStrategy[self.config["battle_strategy"].upper()]
+            except KeyError:
+                logger.warning(f"Invalid battle strategy: {self.config['battle_strategy']}")
+        
+        if "navigation_mode" in self.config:
+            try:
+                ai_config.navigation_mode = NavigationMode[self.config["navigation_mode"].upper()]
+            except KeyError:
+                logger.warning(f"Invalid navigation mode: {self.config['navigation_mode']}")
+        
+        ai_config.switch_threshold = self.config.get("switch_threshold", 0.3)
+        ai_config.status_move_weight = self.config.get("status_move_weight", 0.4)
+        
+        # Initialize agents
         self.battle_agent = BattleAgent(
-            self.emulator,
-            BattleStrategy(
-                aggressive=(self.config.battle_strategy == "aggressive"),
-                catch_wild=(self.config.catch_strategy == "all")
-            )
+            name="BattleAgent",
+            emulator=self.emulator,
+            strategy=ai_config.battle_strategy,
+            switch_threshold=ai_config.switch_threshold,
+            status_move_weight=ai_config.status_move_weight
         )
         
-        self.navigation_agent = NavigationAgent(self.emulator)
+        self.navigation_agent = NavigationAgent(
+            name="NavigationAgent",
+            emulator=self.emulator,
+            mode=ai_config.navigation_mode
+        )
         
-        # Map game modes to agents
-        self.mode_agents: Dict[GameMode, List[Agent]] = {
-            GameMode.BATTLE: [self.battle_agent],
-            GameMode.OVERWORLD: [self.navigation_agent],
-            GameMode.MENU: [],  # TODO: Add menu agent
-            GameMode.DIALOG: []  # TODO: Add dialog agent
-        }
-        
-        logger.info("Initialized AgentManager with all agents")
+        logger.info("Initialized AgentManager")
     
     def update(self, state: GameState) -> bool:
-        """Update all relevant agents with current game state.
+        """Update agents with current game state.
         
         Args:
             state: Current game state
@@ -58,42 +87,17 @@ class AgentManager:
             True if any agent took action
         """
         try:
-            # Get relevant agents for current mode
-            active_agents = self.mode_agents.get(state.mode, [])
-            if not active_agents:
-                logger.debug(f"No agents registered for mode: {state.mode}")
+            # Select appropriate agent based on game mode
+            if state.mode == GameMode.BATTLE:
+                return self.battle_agent.update(state)
+            elif state.mode == GameMode.OVERWORLD:
+                return self.navigation_agent.update(state)
+            else:
+                logger.debug(f"No agent available for mode: {state.mode}")
                 return False
-            
-            # Collect actions from all active agents
-            actions = []
-            for agent in active_agents:
-                action = agent.analyze_state(state)
-                if action is not None:
-                    # Add mode-based priority bonus
-                    if state.mode == GameMode.BATTLE:
-                        action.priority += self.priorities.battle
-                    elif state.mode == GameMode.OVERWORLD:
-                        action.priority += self.priorities.navigation
-                    elif state.mode == GameMode.MENU:
-                        action.priority += self.priorities.menu
-                    elif state.mode == GameMode.DIALOG:
-                        action.priority += self.priorities.dialog
-                    
-                    actions.append((agent, action))
-            
-            if not actions:
-                return False
-            
-            # Sort actions by priority (highest first)
-            actions.sort(key=lambda x: x[1].priority, reverse=True)
-            
-            # Execute highest priority action
-            agent, action = actions[0]
-            logger.info(f"Executing {action.action_type} from {agent.name}")
-            return agent.execute_action(action)
             
         except Exception as e:
-            logger.error(f"Error in agent manager update: {e}")
+            logger.error(f"Error in agent update: {e}")
             return False
     
     def register_agent(self, mode: GameMode, agent: Agent) -> None:

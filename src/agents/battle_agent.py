@@ -1,21 +1,18 @@
 """
 Battle Agent Module
 
-This module implements the battle agent responsible for handling Pokemon battles.
-It uses type matchups, move selection, and battle strategies to win battles.
+This module contains the BattleAgent class for handling Pokemon battles.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from .base_agent import BaseAgent
 from ..emulator.interface import GameState
+from src.emulator.interface import EmulatorInterface
+from src.emulator.game_state import GameMode
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pokemon_player")
 
 # Type effectiveness chart (simplified for example)
 TYPE_CHART = {
@@ -28,190 +25,199 @@ TYPE_CHART = {
 class BattleAgent(BaseAgent):
     """Agent responsible for handling Pokemon battles."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str, emulator: EmulatorInterface):
+        """Initialize the battle agent.
+        
+        Args:
+            name: The name of the agent
+            emulator: The emulator interface to use
+        """
+        super().__init__(name, emulator)
+        self.strategy = "AGGRESSIVE"
         self.current_battle = None
-        self.strategy = self.config.get("strategy", "AGGRESSIVE")
+        self.logger = logger
         logger.info(f"Battle Agent initialized with strategy: {self.strategy}")
     
     def can_handle(self, state: GameState) -> bool:
-        """Check if we're in a battle state."""
-        return state.in_battle
-    
-    def act(self, state: GameState) -> bool:
-        """
-        Handle the current battle situation.
+        """Check if this agent can handle the current game state.
         
         Args:
-            state: Current game state
+            state: The current game state
             
         Returns:
-            True if action was successful
+            bool: True if the agent can handle this state
+        """
+        return state.is_in_battle()
+    
+    def analyze_state(self, state: GameState) -> Optional[Dict[str, Any]]:
+        """Analyze the current battle state and decide on an action.
+        
+        Args:
+            state: The current game state
+            
+        Returns:
+            Optional[Dict[str, Any]]: The action to take, or None if no valid action
+        """
+        if not state.battle:
+            return None
+
+        self.current_battle = {
+            "active_pokemon": state.battle.player_pokemon,
+            "opponent_pokemon": state.battle.opponent_pokemon,
+            "available_moves": state.battle.available_moves
+        }
+
+        if self._should_switch():
+            return {"action": "switch", "target": self._get_best_switch_target()}
+
+        move_index = self._get_best_move()
+        if move_index is not None:
+            return {"action": "move", "move_index": move_index}
+
+        return None
+    
+    def execute_action(self, action: Dict[str, Any]) -> bool:
+        """Execute the chosen battle action.
+        
+        Args:
+            action: The action to execute
+            
+        Returns:
+            bool: True if action was executed successfully
         """
         try:
-            # Update battle state
-            self._update_battle_state(state)
-            
-            # Check if we need to switch Pokemon
-            if self._should_switch():
-                return self._switch_pokemon()
-            
-            # Select and use the best move
-            return self._use_best_move()
-            
+            if action["action"] == "move":
+                self._execute_move(action["move_index"])
+            elif action["action"] == "switch":
+                self._execute_switch(action["target"])
+            return True
         except Exception as e:
-            logger.error(f"Error in battle action: {e}")
+            self.logger.error(f"Error executing battle action: {e}")
             return False
-    
-    def _update_battle_state(self, state: GameState) -> None:
-        """
-        Update internal battle state tracking.
+        
+    def _calculate_move_score(self, move: Dict[str, Any]) -> float:
+        """Calculate a score for a given move.
         
         Args:
-            state: Current game state
-        """
-        # Extract battle information from game state
-        # TODO: Implement battle state parsing
-        self.current_battle = {
-            "active_pokemon": None,
-            "opponent_pokemon": None,
-            "available_moves": [],
-            "team_status": []
-        }
-        logger.debug("Updated battle state")
-    
-    def _calculate_move_score(self, move: Dict) -> float:
-        """
-        Calculate a score for a potential move.
-        
-        Args:
-            move: Move information dictionary
+            move: The move to score
             
         Returns:
-            Score value for the move
+            float: The calculated score
         """
-        score = move.get("power", 0)
+        base_score = move["power"]
         
-        # Apply type effectiveness
-        move_type = move.get("type", "NORMAL")
-        opponent_type = self.current_battle["opponent_pokemon"].get("type", ["NORMAL"])
+        # Type effectiveness multiplier
+        multiplier = self._get_type_effectiveness(
+            move["type"], 
+            self.current_battle["opponent_pokemon"]["type"]
+        )
         
-        for type_ in opponent_type:
-            if move_type in TYPE_CHART and type_ in TYPE_CHART[move_type]:
-                score *= TYPE_CHART[move_type][type_]
-        
-        # Consider PP
-        pp_left = move.get("pp", 0)
-        if pp_left <= 0:
-            score = 0
-        
-        # Consider status moves
-        if move.get("category") == "STATUS":
-            # TODO: Implement status move scoring
-            pass
-        
-        return score
+        return base_score * multiplier
     
     def _get_best_move(self) -> Optional[int]:
-        """
-        Select the best move for the current situation.
+        """Get the index of the best available move.
         
         Returns:
-            Index of the best move or None if no moves available
+            Optional[int]: Index of the best move, or None if no moves available
         """
         if not self.current_battle["available_moves"]:
             return None
-            
+
         move_scores = [
             (i, self._calculate_move_score(move))
             for i, move in enumerate(self.current_battle["available_moves"])
         ]
         
-        best_move = max(move_scores, key=lambda x: x[1])
-        return best_move[0] if best_move[1] > 0 else None
+        if not move_scores:
+            return None
+            
+        return max(move_scores, key=lambda x: x[1])[0]
     
     def _should_switch(self) -> bool:
-        """
-        Determine if we should switch Pokemon.
+        """Determine if we should switch Pokemon.
         
         Returns:
-            True if we should switch Pokemon
+            bool: True if we should switch
         """
         if not self.current_battle:
             return False
             
-        active = self.current_battle["active_pokemon"]
-        opponent = self.current_battle["opponent_pokemon"]
-        
-        # Check health percentage
-        if active.get("hp_percent", 100) < 20:
-            return True
-            
-        # Check type disadvantage
-        active_type = active.get("type", ["NORMAL"])
-        opponent_type = opponent.get("type", ["NORMAL"])
-        
-        type_disadvantage = False
-        for opp_type in opponent_type:
-            if opp_type in TYPE_CHART:
-                for act_type in active_type:
-                    if act_type in TYPE_CHART[opp_type] and TYPE_CHART[opp_type][act_type] > 1:
-                        type_disadvantage = True
-                        break
-        
-        return type_disadvantage and self._has_better_matchup()
+        hp_percent = self.current_battle["active_pokemon"]["hp_percent"]
+        return hp_percent < 20  # Switch if HP is below 20%
     
-    def _has_better_matchup(self) -> bool:
-        """
-        Check if we have a better Pokemon for the current matchup.
+    def _get_best_switch_target(self) -> Optional[int]:
+        """Get the best Pokemon to switch to.
         
         Returns:
-            True if a better matchup is available
+            Optional[int]: Index of the best Pokemon to switch to
         """
-        # TODO: Implement team analysis for better matchups
-        return False
+        # TODO: Implement proper switching logic
+        return 0
     
-    def _switch_pokemon(self) -> bool:
-        """
-        Switch to a better Pokemon.
+    def _execute_move(self, move_index: int) -> None:
+        """Execute a battle move.
         
-        Returns:
-            True if switch was successful
+        Args:
+            move_index: Index of the move to use
         """
-        try:
-            # Open Pokemon menu
-            self._safe_execute("open_menu", self.emulator.press_button, "START")
-            
-            # TODO: Implement Pokemon switching logic
-            # - Select best Pokemon based on matchup
-            # - Navigate menu to switch
-            # - Confirm switch
-            
-            logger.info("Switched Pokemon")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to switch Pokemon: {e}")
-            return False
-    
-    def _use_best_move(self) -> bool:
-        """
-        Use the best available move.
+        # Navigate to move
+        self.emulator.press_button("A")  # Enter fight menu
         
-        Returns:
-            True if move was successfully used
+        # Select move
+        for _ in range(move_index):
+            self.emulator.press_button("DOWN")
+        self.emulator.press_button("A")
+
+    def _execute_switch(self, target_index: int) -> None:
+        """Execute a Pokemon switch.
+        
+        Args:
+            target_index: Index of the Pokemon to switch to
         """
-        best_move = self._get_best_move()
-        if best_move is None:
-            logger.warning("No valid moves available")
-            return False
+        # Navigate to Pokemon menu
+        self.emulator.press_button("B")  # Exit current menu if in one
+        self.emulator.press_button("RIGHT")  # Go to Pokemon menu
+        self.emulator.press_button("A")  # Enter Pokemon menu
+        
+        # Select target Pokemon
+        for _ in range(target_index):
+            self.emulator.press_button("DOWN")
+        self.emulator.press_button("A")  # Select Pokemon
+        self.emulator.press_button("A")  # Confirm switch
+
+    def _get_type_effectiveness(self, move_type: str, defender_types: list) -> float:
+        """Calculate type effectiveness multiplier.
+        
+        Args:
+            move_type: The type of the move
+            defender_types: List of defender's types
             
-        try:
-            # Select and use move
-            # TODO: Implement move selection and execution
-            logger.info(f"Using move {best_move}")
-            return True
+        Returns:
+            float: The type effectiveness multiplier
+        """
+        # TODO: Implement full type chart
+        type_chart = {
+            "FIRE": {
+                "GRASS": 2.0,
+                "WATER": 0.5
+            },
+            "WATER": {
+                "FIRE": 2.0,
+                "GRASS": 0.5
+            },
+            "GRASS": {
+                "WATER": 2.0,
+                "FIRE": 0.5
+            }
+        }
+        
+        # Default to neutral effectiveness
+        if move_type not in type_chart:
+            return 1.0
             
-        except Exception as e:
-            logger.error(f"Failed to use move: {e}")
-            return False 
+        multiplier = 1.0
+        for def_type in defender_types:
+            if def_type in type_chart[move_type]:
+                multiplier *= type_chart[move_type][def_type]
+                
+        return multiplier 

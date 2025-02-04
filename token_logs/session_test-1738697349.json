@@ -1,0 +1,15 @@
+{
+  "session_id": "test-1738697349",
+  "start_time": 1738697349.560816,
+  "requests": [],
+  "summary": {
+    "total_requests": 0,
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "total_tokens": 0,
+    "total_cost": 0,
+    "total_thinking_time": 0,
+    "provider_stats": {},
+    "session_duration": 7.486343383789062e-05
+  }
+}

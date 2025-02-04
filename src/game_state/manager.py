@@ -1,208 +1,206 @@
 """
 Game State Manager Module
 
-This module handles tracking and managing the game state, including progress tracking,
-save states, and state transitions.
+This module manages the game state and its updates.
 """
 
-import logging
-import json
-from typing import Dict, List, Optional, Any
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from typing import Dict, Optional, List, Any
+from dataclasses import dataclass, field
 from pathlib import Path
+import json
+import time
+from datetime import datetime
 
-from ..emulator.interface import GameState, EmulatorInterface
+from utils.logger import get_logger
+from emulator.interface import EmulatorInterface
+from emulator.game_state import GameState, GameMode
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Get logger for this module
+logger = get_logger("game_state")
 
 @dataclass
 class Progress:
-    """Tracks overall game progress."""
-    badges: List[str] = None
+    """Class for tracking game progress."""
+    badges: List[str] = field(default_factory=list)
     pokedex_caught: int = 0
     pokedex_seen: int = 0
-    story_progress: str = "START"
-    current_objective: str = "BEGIN_JOURNEY"
-    pokemon_levels: Dict[str, int] = None
+    story_progress: str = ""
+    current_objective: str = ""
+    pokemon_levels: Dict[str, int] = field(default_factory=dict)
     play_time: float = 0.0
     save_count: int = 0
-    last_save: Optional[datetime] = None
-    
-    def __post_init__(self):
-        """Initialize default values for collections."""
-        if self.badges is None:
-            self.badges = []
-        if self.pokemon_levels is None:
-            self.pokemon_levels = {}
 
 class GameStateManager:
-    """Manages game state and progress tracking."""
+    """Manages and updates the game state."""
     
     def __init__(self, emulator: EmulatorInterface, save_dir: str = "saves"):
-        """
-        Initialize the game state manager.
+        """Initialize the game state manager.
         
         Args:
-            emulator: Interface to the GBA emulator
-            save_dir: Directory to store save states and progress
+            emulator: EmulatorInterface instance
+            save_dir: Directory for saving progress
         """
         self.emulator = emulator
         self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(parents=True, exist_ok=True)
-        self.progress = Progress()
+        self.save_dir.mkdir(exist_ok=True)
+        
         self.current_state = None
-        self.state_history: List[GameState] = []
-        self.max_history = 1000
-        logger.info(f"Initialized GameStateManager with save directory: {save_dir}")
+        self.state_history = []
+        self.max_history = 100
+        self.progress = Progress()
         
-    def update(self) -> None:
-        """Update the current game state and progress."""
-        new_state = self.emulator.get_game_state()
-        self._update_progress(new_state)
-        self._update_history(new_state)
-        self.current_state = new_state
+        logger.info("Game state manager initialized")
+    
+    def update(self) -> bool:
+        """Update the game state.
         
-    def save_progress(self, slot: Optional[int] = None) -> bool:
+        Returns:
+            True if update was successful
         """
-        Save current progress and game state.
+        try:
+            # Get current state from emulator
+            state = self.emulator.get_game_state()
+            
+            # Update state history
+            self.current_state = state
+            self.state_history.append(state)
+            
+            # Limit history size
+            if len(self.state_history) > self.max_history:
+                self.state_history = self.state_history[-self.max_history:]
+            
+            # Update progress based on state
+            self._update_progress(state)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating game state: {e}")
+            return False
+    
+    def _update_progress(self, state: GameState):
+        """Update progress based on current state.
         
         Args:
-            slot: Optional save slot number
+            state: Current game state
+        """
+        # Update play time
+        self.progress.play_time += 0.1  # Assuming 100ms update interval
+        
+        # Update other progress metrics based on state
+        if state.mode == GameMode.BATTLE:
+            # Handle battle progress
+            pass
+        elif state.mode == GameMode.OVERWORLD:
+            # Handle overworld progress
+            pass
+    
+    def save_progress(self, slot: int = 0) -> bool:
+        """Save current progress to file.
+        
+        Args:
+            slot: Save slot number
             
         Returns:
             True if save was successful
         """
         try:
-            # Save emulator state
-            if slot is not None:
-                self.emulator.save_state(slot)
-            
-            # Save progress data
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_name = f"progress_{timestamp}.json" if slot is None else f"progress_slot_{slot}.json"
-            save_path = self.save_dir / save_name
-            
-            progress_data = {
-                "progress": asdict(self.progress),
-                "timestamp": timestamp,
+            # Create save data
+            save_data = {
+                "progress": {
+                    "badges": self.progress.badges,
+                    "pokedex_caught": self.progress.pokedex_caught,
+                    "pokedex_seen": self.progress.pokedex_seen,
+                    "story_progress": self.progress.story_progress,
+                    "current_objective": self.progress.current_objective,
+                    "pokemon_levels": self.progress.pokemon_levels,
+                    "play_time": self.progress.play_time,
+                    "save_count": self.progress.save_count + 1
+                },
+                "timestamp": datetime.now().strftime("%Y%m%d_%H%M%S"),
                 "slot": slot
             }
             
+            # Save to file
+            save_path = self.save_dir / f"progress_slot_{slot}.json"
             with open(save_path, 'w') as f:
-                json.dump(progress_data, f, indent=2, default=str)
+                json.dump(save_data, f, indent=2)
             
             self.progress.save_count += 1
-            self.progress.last_save = datetime.now()
-            logger.info(f"Saved progress to {save_path}")
+            logger.info(f"Progress saved to slot {slot}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to save progress: {e}")
+            logger.error(f"Error saving progress: {e}")
             return False
     
-    def load_progress(self, slot: Optional[int] = None) -> bool:
-        """
-        Load progress and game state.
+    def load_progress(self, slot: int = 0) -> bool:
+        """Load progress from file.
         
         Args:
-            slot: Optional save slot number
+            slot: Save slot number
             
         Returns:
             True if load was successful
         """
         try:
-            # Find the appropriate save file
-            if slot is not None:
-                save_path = self.save_dir / f"progress_slot_{slot}.json"
-            else:
-                # Load the most recent save
-                save_files = list(self.save_dir.glob("progress_*.json"))
-                if not save_files:
-                    logger.warning("No save files found")
-                    return False
-                save_path = max(save_files, key=lambda p: p.stat().st_mtime)
-            
-            # Load progress data
+            # Load from file
+            save_path = self.save_dir / f"progress_slot_{slot}.json"
             with open(save_path, 'r') as f:
-                progress_data = json.load(f)
-            
-            # Load emulator state if slot specified
-            if slot is not None:
-                self.emulator.load_state(slot)
+                save_data = json.load(f)
             
             # Update progress
-            self.progress = Progress(**progress_data["progress"])
-            logger.info(f"Loaded progress from {save_path}")
+            progress_data = save_data["progress"]
+            self.progress.badges = progress_data["badges"]
+            self.progress.pokedex_caught = progress_data["pokedex_caught"]
+            self.progress.pokedex_seen = progress_data["pokedex_seen"]
+            self.progress.story_progress = progress_data["story_progress"]
+            self.progress.current_objective = progress_data["current_objective"]
+            self.progress.pokemon_levels = progress_data["pokemon_levels"]
+            self.progress.play_time = progress_data["play_time"]
+            self.progress.save_count = progress_data["save_count"]
+            
+            logger.info(f"Progress loaded from slot {slot}")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load progress: {e}")
+            logger.error(f"Error loading progress: {e}")
             return False
     
     def get_objective(self) -> str:
-        """Get the current objective."""
+        """Get current objective.
+        
+        Returns:
+            Current objective string
+        """
         return self.progress.current_objective
     
-    def set_objective(self, objective: str) -> None:
-        """
-        Set the current objective.
+    def set_objective(self, objective: str):
+        """Set current objective.
         
         Args:
             objective: New objective string
         """
-        logger.info(f"Setting objective: {objective}")
         self.progress.current_objective = objective
-    
-    def _update_progress(self, state: GameState) -> None:
-        """
-        Update progress based on new game state.
-        
-        Args:
-            state: New game state
-        """
-        # Update play time
-        self.progress.play_time += 1/60  # Assuming 60 fps
-        
-        # TODO: Implement progress updates based on game state
-        # - Check for new badges
-        # - Update Pokedex counts
-        # - Track Pokemon levels
-        # - Update story progress
-    
-    def _update_history(self, state: GameState) -> None:
-        """
-        Update state history.
-        
-        Args:
-            state: New game state
-        """
-        self.state_history.append(state)
-        if len(self.state_history) > self.max_history:
-            self.state_history.pop(0)
+        logger.info(f"New objective set: {objective}")
     
     def get_summary(self) -> Dict[str, Any]:
-        """
-        Get a summary of current progress.
+        """Get progress summary.
         
         Returns:
-            Dictionary containing progress summary
+            Summary dictionary
         """
+        # Count Pokemon at max level
+        max_level_count = sum(1 for level in self.progress.pokemon_levels.values() if level == 100)
+        
         return {
             "badges": len(self.progress.badges),
             "pokedex": {
                 "caught": self.progress.pokedex_caught,
-                "seen": self.progress.pokedex_seen,
-                "completion": f"{(self.progress.pokedex_caught/386)*100:.1f}%"
+                "seen": self.progress.pokedex_seen
             },
             "story": self.progress.story_progress,
-            "objective": self.progress.current_objective,
-            "play_time": f"{self.progress.play_time/3600:.1f} hours",
             "pokemon_count": len(self.progress.pokemon_levels),
-            "max_level_count": sum(1 for level in self.progress.pokemon_levels.values() if level >= 100)
+            "max_level_count": max_level_count,
+            "play_time": f"{self.progress.play_time / 3600:.1f} hours"
         } 

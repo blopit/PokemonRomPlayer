@@ -1,237 +1,294 @@
-from typing import List, Optional, Tuple, Dict
-from dataclasses import dataclass
-import numpy as np
+"""
+Navigation Agent Module
 
-from utils.logger import logger
+This module handles navigation and pathfinding in the game world.
+"""
+
+from typing import Dict, Optional, Tuple, List
+from dataclasses import dataclass
+from enum import Enum, auto
+import logging
+
+from utils.logger import get_logger
 from emulator.interface import EmulatorInterface
 from emulator.game_state import GameState, GameMode
 from .agent import Agent, AgentAction
-from .pathfinding import PathFinder
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
+
+class NavigationMode(Enum):
+    """Different modes of navigation."""
+    EXPLORE = auto()  # Free exploration
+    PATHFIND = auto()  # Following a specific path
+    BACKTRACK = auto()  # Return to previous location
 
 @dataclass
 class MapLocation:
-    """Represents a location on the game map."""
+    """Represents a location in the game world."""
+    name: str
     x: int
     y: int
-    map_id: int
-    name: str = ""
+    map_id: str
+    connections: List[str] = None  # Names of connected locations
     
+    def __post_init__(self):
+        if self.connections is None:
+            self.connections = []
+            
+    def __eq__(self, other):
+        if not isinstance(other, MapLocation):
+            return False
+        return (self.x == other.x and 
+                self.y == other.y and 
+                self.map_id == other.map_id)
+                
+    def __hash__(self):
+        return hash((self.x, self.y, self.map_id))
+        
     def distance_to(self, other: 'MapLocation') -> float:
-        """Calculate Manhattan distance to another location."""
+        """Calculate Manhattan distance to another location.
+        
+        Args:
+            other: Target location
+            
+        Returns:
+            Manhattan distance
+        """
         if self.map_id != other.map_id:
             return float('inf')
         return abs(self.x - other.x) + abs(self.y - other.y)
 
-@dataclass
-class NavigationTarget:
-    """Target destination for navigation."""
-    location: MapLocation
-    required_conditions: Dict[str, bool] = None  # e.g., {"has_surf": True}
-
 class NavigationAgent(Agent):
-    """Agent responsible for overworld navigation and pathfinding."""
+    """Agent specialized for handling overworld navigation."""
     
-    # Action types
-    MOVE = "move"
-    INTERACT = "interact"
-    USE_ITEM = "use_item"
-    
-    # Movement directions
-    DIRECTIONS = ['up', 'down', 'left', 'right']
-    
-    def __init__(self, emulator: EmulatorInterface):
+    def __init__(self, name: str, emulator: EmulatorInterface, mode: NavigationMode = NavigationMode.EXPLORE,
+                 target_x: Optional[int] = None, target_y: Optional[int] = None):
         """Initialize the navigation agent.
         
         Args:
+            name: Agent name
             emulator: EmulatorInterface instance
+            mode: Navigation mode to use
+            target_x: Optional target X coordinate
+            target_y: Optional target Y coordinate
         """
-        super().__init__(emulator, name="NavigationAgent")
-        self.current_path: List[Tuple[int, int]] = []
-        self.current_target: Optional[NavigationTarget] = None
-        self.map_data: Dict[int, np.ndarray] = {}  # Map ID -> Collision map
-        self.pathfinders: Dict[int, PathFinder] = {}  # Map ID -> PathFinder
-    
-    def set_target(self, target: NavigationTarget) -> None:
-        """Set a new navigation target.
-        
-        Args:
-            target: Target to navigate to
-        """
-        self.current_target = target
-        self.current_path = []
-        logger.info(f"Set new navigation target: {target.location.name}")
+        super().__init__(name, emulator)
+        self.mode = mode
+        self.target_x = target_x
+        self.target_y = target_y
+        self.current_location = None
+        self.target_location = None
+        self.known_locations = {}  # Map ID -> List[MapLocation]
+        logger.info(f"Initialized navigation agent with mode: {mode}")
     
     def analyze_state(self, state: GameState) -> Optional[AgentAction]:
-        """Analyze the current state and decide on movement.
+        """Analyze the current state and determine navigation action.
         
         Args:
             state: Current game state
             
         Returns:
-            Movement action to take
+            AgentAction if one should be taken, None otherwise
         """
-        if state.mode != GameMode.OVERWORLD or self.current_target is None:
+        if state.mode != GameMode.OVERWORLD:
+            logger.debug(f"Agent {self.name} cannot handle non-overworld state")
             return None
         
-        current_location = MapLocation(
-            x=state.player.x_position,
-            y=state.player.y_position,
-            map_id=state.current_map_id
-        )
-        
-        # Check if we've reached the target
-        if current_location.distance_to(self.current_target.location) == 0:
-            logger.info("Reached navigation target")
-            self.current_target = None
+        # Check if we've reached target
+        if self._at_target(state):
+            logger.info(f"Agent {self.name} reached target location")
             return None
         
-        # Update or calculate path if needed
-        if not self.current_path:
-            self.current_path = self._calculate_path(
-                current_location,
-                self.current_target.location
-            )
-            if not self.current_path:
-                logger.error("Could not find path to target")
-                return None
+        # Determine movement direction
+        if self._should_move(state):
+            logger.debug(f"Agent {self.name} deciding movement direction")
+            return AgentAction.MOVE
         
-        # Get next step in path
-        next_x, next_y = self.current_path[0]
-        dx = next_x - current_location.x
-        dy = next_y - current_location.y
-        
-        # Determine direction to move
-        if dx > 0:
-            direction = 'right'
-        elif dx < 0:
-            direction = 'left'
-        elif dy > 0:
-            direction = 'down'
-        elif dy < 0:
-            direction = 'up'
-        else:
-            return None
-        
-        return AgentAction(
-            action_type=self.MOVE,
-            parameters={"direction": direction},
-            priority=1
-        )
+        return None
     
-    def execute_action(self, action: AgentAction) -> bool:
-        """Execute a navigation action.
+    def execute_action(self, action: AgentAction, state: GameState) -> bool:
+        """Execute the specified navigation action.
         
         Args:
             action: Action to execute
+            state: Current game state
             
         Returns:
-            True if action was successful
+            True if action was executed successfully
         """
-        try:
-            if action.action_type == self.MOVE:
-                return self._execute_move(action.parameters["direction"])
-            
-            elif action.action_type == self.INTERACT:
-                return self._execute_interact()
-            
-            elif action.action_type == self.USE_ITEM:
-                return self._execute_use_item(action.parameters["item_id"])
-            
-            else:
-                logger.error(f"Unknown action type: {action.action_type}")
-                return False
-            
-        except Exception as e:
-            self.handle_error(e)
+        if action != AgentAction.MOVE:
+            logger.warning(f"Agent {self.name} received invalid action: {action}")
             return False
+        
+        return self._handle_movement(state)
     
-    def _calculate_path(self, start: MapLocation, goal: MapLocation) -> List[Tuple[int, int]]:
-        """Calculate path from start to goal using A* pathfinding.
+    def _at_target(self, state: GameState) -> bool:
+        """Check if we've reached the target location.
         
         Args:
-            start: Starting location
-            goal: Goal location
+            state: Current game state
             
         Returns:
-            List of (x, y) coordinates forming the path
+            True if at target location
         """
-        if start.map_id != goal.map_id:
-            logger.error("Cannot pathfind between different maps yet")
-            return []
+        if self.target_x is None or self.target_y is None:
+            return False
         
-        # Get or create pathfinder for current map
-        if start.map_id not in self.pathfinders:
-            collision_map = self.map_data.get(start.map_id)
-            if collision_map is None:
-                logger.error("No collision map data for current map")
-                return []
-            self.pathfinders[start.map_id] = PathFinder(collision_map)
-        
-        pathfinder = self.pathfinders[start.map_id]
-        return pathfinder.find_path(start, goal)
+        return (state.player.x_position == self.target_x and 
+                state.player.y_position == self.target_y)
     
-    def _execute_move(self, direction: str) -> bool:
-        """Execute a movement in a direction.
+    def _should_move(self, state: GameState) -> bool:
+        """Determine if movement is needed.
         
         Args:
-            direction: Direction to move
+            state: Current game state
             
         Returns:
-            True if successful
+            True if movement is needed
         """
-        try:
-            # Hold direction button briefly
-            self.emulator.press_button(direction, duration=0.2)
-            
-            # Update path if move was successful
-            if self.current_path:
-                self.current_path.pop(0)
-            
+        if self.mode == NavigationMode.EXPLORE:
             return True
-            
-        except Exception as e:
-            logger.error(f"Error executing move: {e}")
-            return False
-    
-    def _execute_interact(self) -> bool:
-        """Execute an interaction with an object/NPC.
         
-        Returns:
-            True if successful
-        """
-        try:
-            self.emulator.press_button('a')
-            return True
-        except Exception as e:
-            logger.error(f"Error executing interact: {e}")
-            return False
-    
-    def _execute_use_item(self, item_id: int) -> bool:
-        """Execute using a field move/item.
+        if self.mode == NavigationMode.PATHFIND:
+            return not self._at_target(state)
         
-        Args:
-            item_id: ID of item/move to use
-            
-        Returns:
-            True if successful
-        """
-        # TODO: Implement field move/item usage
         return False
     
-    def load_map_data(self, map_id: int, collision_data: np.ndarray) -> None:
-        """Load collision map data for a map.
+    def _handle_movement(self, state: GameState) -> bool:
+        """Handle movement in the appropriate direction.
         
         Args:
-            map_id: Map identifier
-            collision_data: 2D numpy array of collision data
+            state: Current game state
+            
+        Returns:
+            True if movement was successful
         """
-        self.map_data[map_id] = collision_data
-        # Clear cached pathfinder to force recreation with new data
-        self.pathfinders.pop(map_id, None)
-        logger.info(f"Loaded collision data for map {map_id}")
+        try:
+            if self.mode == NavigationMode.EXPLORE:
+                return self._handle_exploration(state)
+            elif self.mode == NavigationMode.PATHFIND:
+                return self._handle_pathfinding(state)
+            else:
+                return self._handle_backtracking(state)
+            
+        except Exception as e:
+            logger.error(f"Error handling movement: {e}")
+            return False
     
-    def clear_map_data(self) -> None:
-        """Clear all stored map data."""
-        self.map_data.clear()
-        self.pathfinders.clear()
-        logger.info("Cleared all map data") 
+    def _handle_exploration(self, state: GameState) -> bool:
+        """Handle free exploration movement.
+        
+        Args:
+            state: Current game state
+            
+        Returns:
+            True if movement was successful
+        """
+        # TODO: Implement smarter exploration
+        # For now, just move in a random valid direction
+        self.emulator.press_button('right')
+        return True
+    
+    def _handle_pathfinding(self, state: GameState) -> bool:
+        """Handle pathfinding movement.
+        
+        Args:
+            state: Current game state
+            
+        Returns:
+            True if movement was successful
+        """
+        if self.target_x is None or self.target_y is None:
+            logger.warning("No target location set for pathfinding")
+            return False
+        
+        # Calculate direction to target
+        dx = self.target_x - state.player.x_position
+        dy = self.target_y - state.player.y_position
+        
+        # Move in the direction of larger difference
+        if abs(dx) > abs(dy):
+            button = 'right' if dx > 0 else 'left'
+        else:
+            button = 'down' if dy > 0 else 'up'
+        
+        self.emulator.press_button(button)
+        return True
+    
+    def _handle_backtracking(self, state: GameState) -> bool:
+        """Handle backtracking movement.
+        
+        Args:
+            state: Current game state
+            
+        Returns:
+            True if movement was successful
+        """
+        # TODO: Implement backtracking logic
+        logger.warning("Backtracking not yet implemented")
+        return False
+
+    def set_current_location(self, location: MapLocation):
+        """Set the current location.
+        
+        Args:
+            location: Current location
+        """
+        self.current_location = location
+        if location.map_id not in self.known_locations:
+            self.known_locations[location.map_id] = []
+        if location not in self.known_locations[location.map_id]:
+            self.known_locations[location.map_id].append(location)
+            
+    def set_target_location(self, location: MapLocation) -> bool:
+        """Set the target location.
+        
+        Args:
+            location: Target location
+            
+        Returns:
+            True if target is reachable
+        """
+        self.target_location = location
+        return self.is_reachable(location)
+        
+    def is_reachable(self, location: MapLocation) -> bool:
+        """Check if a location is reachable from current position.
+        
+        Args:
+            location: Target location
+            
+        Returns:
+            True if location is reachable
+        """
+        if not self.current_location:
+            return False
+            
+        # Same map
+        if location.map_id == self.current_location.map_id:
+            return True
+            
+        # Check connections
+        return any(loc.name in self.current_location.connections 
+                  for loc in self.known_locations.get(location.map_id, []))
+                  
+    def get_next_move(self) -> Optional[str]:
+        """Get the next movement action.
+        
+        Returns:
+            Movement action or None if no move needed
+        """
+        if not self.current_location or not self.target_location:
+            return None
+            
+        if self.current_location == self.target_location:
+            return None
+            
+        dx = self.target_location.x - self.current_location.x
+        dy = self.target_location.y - self.current_location.y
+        
+        if abs(dx) > abs(dy):
+            return "MOVE_RIGHT" if dx > 0 else "MOVE_LEFT"
+        else:
+            return "MOVE_DOWN" if dy > 0 else "MOVE_UP" 

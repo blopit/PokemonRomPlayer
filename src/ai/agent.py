@@ -1,95 +1,51 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
-from dataclasses import dataclass
+"""
+Base agent class for Pokemon game automation
+"""
 
-from utils.logger import logger
-from emulator.interface import EmulatorInterface
-from emulator.game_state import GameState
+from typing import List, Dict, Any, Optional
+from utils.command_queue import CommandQueue, GameCommand
+from utils.logger import get_logger
 
-@dataclass
-class AgentAction:
-    """Represents an action to be taken by an agent."""
-    action_type: str
-    parameters: Dict[str, Any]
-    priority: int = 0
+logger = get_logger("pokemon_player")
+
+class Agent:
+    """Base class for specialized agents"""
     
-    def __lt__(self, other):
-        """Compare actions by priority."""
-        return self.priority < other.priority
-
-class Agent(ABC):
-    """Base class for AI agents."""
-    
-    def __init__(self, emulator: EmulatorInterface, name: str = "BaseAgent"):
-        """Initialize the agent.
+    def __init__(self, name: str):
+        """Initialize agent.
         
         Args:
-            emulator: EmulatorInterface instance
-            name: Agent name for logging
+            name: Agent name/role
         """
-        self.emulator = emulator
         self.name = name
-        logger.info(f"Initialized {self.name}")
-    
-    @abstractmethod
-    def analyze_state(self, state: GameState) -> Optional[AgentAction]:
-        """Analyze the current game state and decide on an action.
+        self.command_queue = CommandQueue()
+        
+    def generate_commands(self, 
+                         screen_state: Dict[str, Any],
+                         game_state: Dict[str, Any],
+                         context: Optional[Dict[str, Any]] = None) -> List[GameCommand]:
+        """Generate commands based on current state.
         
         Args:
-            state: Current game state
+            screen_state: Current screen analysis results
+            game_state: Current game memory state
+            context: Optional additional context
             
         Returns:
-            Optional action to take
+            List of commands to execute
         """
-        pass
-    
-    @abstractmethod
-    def execute_action(self, action: AgentAction) -> bool:
-        """Execute the specified action.
+        raise NotImplementedError
+        
+    def can_handle(self, 
+                   screen_state: Dict[str, Any],
+                   game_state: Dict[str, Any]) -> bool:
+        """Check if this agent can handle the current state.
         
         Args:
-            action: Action to execute
+            screen_state: Current screen analysis results
+            game_state: Current game memory state
             
         Returns:
-            True if action was successful
+            True if agent can handle this state
         """
-        pass
-    
-    def update(self, state: GameState) -> bool:
-        """Update the agent with the current game state.
-        
-        Args:
-            state: Current game state
-            
-        Returns:
-            True if agent took action
-        """
-        try:
-            # Analyze state and get action
-            action = self.analyze_state(state)
-            if action is None:
-                return False
-            
-            # Execute action
-            logger.debug(f"{self.name} executing action: {action.action_type}")
-            success = self.execute_action(action)
-            
-            if success:
-                logger.debug(f"{self.name} successfully executed action: {action.action_type}")
-            else:
-                logger.warning(f"{self.name} failed to execute action: {action.action_type}")
-            
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error in {self.name} update: {e}")
-            return False
-    
-    def handle_error(self, error: Exception) -> None:
-        """Handle an error that occurred during agent operation.
-        
-        Args:
-            error: Exception that occurred
-        """
-        logger.error(f"Error in {self.name}: {error}")
-        # Subclasses can implement specific error handling 
+        raise NotImplementedError 

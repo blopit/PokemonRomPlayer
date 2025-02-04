@@ -1,0 +1,35 @@
+{
+  "session_id": "2025-02-03",
+  "start_time": 1738623689.935903,
+  "requests": [
+    {
+      "timestamp": 1738623689.937767,
+      "provider": "openai",
+      "model": "o1",
+      "token_usage": {
+        "prompt_tokens": 925,
+        "completion_tokens": 1525,
+        "total_tokens": 2450,
+        "reasoning_tokens": 960
+      },
+      "cost": 0.10537500000000001,
+      "thinking_time": 14.728375911712646
+    }
+  ],
+  "summary": {
+    "total_requests": 1,
+    "total_prompt_tokens": 925,
+    "total_completion_tokens": 1525,
+    "total_tokens": 2450,
+    "total_cost": 0.10537500000000001,
+    "total_thinking_time": 14.728375911712646,
+    "provider_stats": {
+      "openai": {
+        "requests": 1,
+        "total_tokens": 2450,
+        "total_cost": 0.10537500000000001
+      }
+    },
+    "session_duration": 0.0018758773803710938
+  }
+}

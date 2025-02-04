@@ -1,28 +1,12 @@
 {
-    "emulator": {
-        "executable_path": "mgba",
-        "window_title": "mGBA",
-        "key_mappings": {
-            "a": "x",
-            "b": "z",
-            "start": "enter",
-            "select": "backspace",
-            "up": "up",
-            "down": "down",
-            "left": "left",
-            "right": "right",
-            "l": "a",
-            "r": "s"
-        },
-        "save_state_dir": "saves"
-    },
+    "rom_path": "./roms/moemon star em v1.1c.gba",
+    "emulator_path": "mgba",
     "game": {
-        "rom_path": "",
         "game_version": "emerald",
         "memory_map_version": "emerald",
-        "save_file_path": null
+        "save_file_path": "./roms/moemon star em v1.1c.sav"
     },
-    "ai": {
+    "ai_config": {
         "battle_strategy": "aggressive",
         "catch_strategy": "all",
         "training_strategy": "efficient",

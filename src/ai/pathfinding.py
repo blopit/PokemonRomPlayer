@@ -1,194 +1,128 @@
-from typing import List, Tuple, Set, Dict, Optional
-import heapq
-import numpy as np
+"""
+Pathfinding Module
 
-from utils.logger import logger
+This module implements pathfinding algorithms for navigation.
+"""
+
+import heapq
+from typing import List, Dict, Set, Optional
+import logging
+
 from .navigation_agent import MapLocation
 
-class Node:
-    """A node in the pathfinding graph."""
-    
-    def __init__(self, x: int, y: int, g_cost: float = float('inf'), 
-                 h_cost: float = 0.0, parent: Optional['Node'] = None):
-        """Initialize a node.
-        
-        Args:
-            x: X coordinate
-            y: Y coordinate
-            g_cost: Cost from start to this node
-            h_cost: Estimated cost from this node to goal
-            parent: Parent node in the path
-        """
-        self.x = x
-        self.y = y
-        self.g_cost = g_cost
-        self.h_cost = h_cost
-        self.parent = parent
-    
-    @property
-    def f_cost(self) -> float:
-        """Total estimated cost (g_cost + h_cost)."""
-        return self.g_cost + self.h_cost
-    
-    def __lt__(self, other: 'Node') -> bool:
-        """Compare nodes by f_cost for priority queue."""
-        return self.f_cost < other.f_cost
-    
-    def __eq__(self, other: object) -> bool:
-        """Compare nodes by position."""
-        if not isinstance(other, Node):
-            return NotImplemented
-        return self.x == other.x and self.y == other.y
-    
-    def __hash__(self) -> int:
-        """Hash node by position."""
-        return hash((self.x, self.y))
+logger = logging.getLogger(__name__)
 
 class PathFinder:
     """A* pathfinding implementation."""
     
-    # Movement costs
-    STRAIGHT_COST = 1.0
-    DIAGONAL_COST = 1.4  # sqrt(2)
-    
-    def __init__(self, collision_map: np.ndarray):
-        """Initialize pathfinder.
+    def __init__(self):
+        """Initialize pathfinder."""
+        self.known_locations = {}  # Map ID -> List[MapLocation]
+        
+    def add_location(self, location: MapLocation):
+        """Add a location to the known locations.
         
         Args:
-            collision_map: 2D numpy array where True indicates walkable tiles
+            location: Location to add
         """
-        self.collision_map = collision_map
-        self.height, self.width = collision_map.shape
-    
-    def find_path(self, start: MapLocation, goal: MapLocation) -> List[Tuple[int, int]]:
-        """Find a path from start to goal using A*.
+        if location.map_id not in self.known_locations:
+            self.known_locations[location.map_id] = []
+        if location not in self.known_locations[location.map_id]:
+            self.known_locations[location.map_id].append(location)
+            
+    def get_neighbors(self, location: MapLocation) -> List[MapLocation]:
+        """Get neighboring locations.
+        
+        Args:
+            location: Current location
+            
+        Returns:
+            List of neighboring locations
+        """
+        neighbors = []
+        
+        # Same map neighbors
+        for loc in self.known_locations.get(location.map_id, []):
+            if loc != location and loc.distance_to(location) == 1:
+                neighbors.append(loc)
+                
+        # Connected map neighbors
+        for map_id, locations in self.known_locations.items():
+            if map_id != location.map_id:
+                for loc in locations:
+                    if loc.name in location.connections:
+                        neighbors.append(loc)
+                        
+        return neighbors
+        
+    def find_path(self, start: MapLocation, goal: MapLocation) -> Optional[List[MapLocation]]:
+        """Find path between two locations using A*.
         
         Args:
             start: Starting location
-            goal: Goal location
+            goal: Target location
             
         Returns:
-            List of (x, y) coordinates forming the path
+            List of locations forming the path, or None if no path exists
         """
-        # Validate coordinates
-        if not self._is_valid_position(start.x, start.y):
-            logger.error(f"Invalid start position: ({start.x}, {start.y})")
-            return []
-        if not self._is_valid_position(goal.x, goal.y):
-            logger.error(f"Invalid goal position: ({goal.x}, {goal.y})")
-            return []
-        
-        # Initialize start node
-        start_node = Node(start.x, start.y, g_cost=0.0, 
-                         h_cost=self._calculate_h_cost(start.x, start.y, goal.x, goal.y))
-        
-        # Initialize open and closed sets
-        open_set: List[Node] = [start_node]  # Priority queue
-        closed_set: Set[Node] = set()
-        
-        # Track all nodes for updating
-        all_nodes: Dict[Tuple[int, int], Node] = {(start.x, start.y): start_node}
-        
-        while open_set:
-            # Get node with lowest f_cost
-            current = heapq.heappop(open_set)
+        if not start or not goal:
+            return None
             
-            # Check if we've reached the goal
-            if current.x == goal.x and current.y == goal.y:
-                return self._reconstruct_path(current)
+        # A* algorithm
+        frontier = [(0, start)]  # Priority queue of (f_score, location)
+        came_from = {start: None}
+        g_score = {start: 0}  # Cost from start
+        f_score = {start: start.distance_to(goal)}  # Estimated total cost
+        
+        while frontier:
+            current = heapq.heappop(frontier)[1]
             
-            closed_set.add(current)
-            
-            # Check all neighbors
-            for dx, dy in self._get_neighbors():
-                new_x, new_y = current.x + dx, current.y + dy
+            if current == goal:
+                # Reconstruct path
+                path = []
+                while current:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return path
                 
-                # Skip if position is invalid or not walkable
-                if not self._is_valid_position(new_x, new_y):
-                    continue
-                if not self.collision_map[new_y, new_x]:
-                    continue
+            for neighbor in self.get_neighbors(current):
+                tentative_g = g_score[current] + current.distance_to(neighbor)
                 
-                # Calculate cost to neighbor
-                move_cost = self.DIAGONAL_COST if dx != 0 and dy != 0 else self.STRAIGHT_COST
-                tentative_g_cost = current.g_cost + move_cost
-                
-                # Get or create neighbor node
-                neighbor_pos = (new_x, new_y)
-                if neighbor_pos not in all_nodes:
-                    neighbor = Node(
-                        new_x, new_y,
-                        h_cost=self._calculate_h_cost(new_x, new_y, goal.x, goal.y)
-                    )
-                    all_nodes[neighbor_pos] = neighbor
-                else:
-                    neighbor = all_nodes[neighbor_pos]
-                
-                # Skip if we've found a better path already
-                if neighbor in closed_set and tentative_g_cost >= neighbor.g_cost:
-                    continue
-                
-                # Update neighbor if we found a better path
-                if tentative_g_cost < neighbor.g_cost:
-                    neighbor.parent = current
-                    neighbor.g_cost = tentative_g_cost
+                if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g
+                    f = tentative_g + neighbor.distance_to(goal)
+                    f_score[neighbor] = f
+                    heapq.heappush(frontier, (f, neighbor))
                     
-                    if neighbor not in open_set:
-                        heapq.heappush(open_set, neighbor)
+        return None  # No path found
         
-        logger.warning("No path found")
-        return []
-    
-    def _is_valid_position(self, x: int, y: int) -> bool:
-        """Check if a position is within map bounds.
+    def get_next_move(self, current: MapLocation, target: MapLocation) -> Optional[str]:
+        """Get next movement action towards target.
         
         Args:
-            x: X coordinate
-            y: Y coordinate
+            current: Current location
+            target: Target location
             
         Returns:
-            True if position is valid
+            Movement action or None if no move needed/possible
         """
-        return (0 <= x < self.width and 
-                0 <= y < self.height)
-    
-    def _calculate_h_cost(self, x1: int, y1: int, x2: int, y2: int) -> float:
-        """Calculate heuristic cost between two points.
-        
-        Uses Manhattan distance for better performance.
-        
-        Args:
-            x1, y1: First point coordinates
-            x2, y2: Second point coordinates
+        path = self.find_path(current, target)
+        if not path or len(path) < 2:
+            return None
             
-        Returns:
-            Estimated cost between points
-        """
-        return abs(x2 - x1) + abs(y2 - y1)
-    
-    def _get_neighbors(self) -> List[Tuple[int, int]]:
-        """Get relative coordinates of neighboring tiles.
+        next_loc = path[1]
+        dx = next_loc.x - current.x
+        dy = next_loc.y - current.y
         
-        Returns:
-            List of (dx, dy) tuples for adjacent tiles
-        """
-        # Only allow cardinal directions (no diagonals)
-        return [(0, 1), (1, 0), (0, -1), (-1, 0)]
-    
-    def _reconstruct_path(self, end_node: Node) -> List[Tuple[int, int]]:
-        """Reconstruct path from end node by following parent pointers.
-        
-        Args:
-            end_node: Final node in path
-            
-        Returns:
-            List of (x, y) coordinates from start to end
-        """
-        path = []
-        current = end_node
-        
-        while current is not None:
-            path.append((current.x, current.y))
-            current = current.parent
-        
-        return list(reversed(path)) 
+        if dx > 0:
+            return "MOVE_RIGHT"
+        elif dx < 0:
+            return "MOVE_LEFT"
+        elif dy > 0:
+            return "MOVE_DOWN"
+        elif dy < 0:
+            return "MOVE_UP"
+        else:
+            return None 

@@ -1,124 +1,92 @@
 """
 Base Agent Module
 
-This module defines the base agent class that all specialized agents will inherit from.
-It provides common functionality and interfaces for agent interaction.
+This module defines the base agent class that all other agents inherit from.
 """
 
-import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
-from ..emulator.interface import EmulatorInterface, GameState
+from typing import Any, Dict, Optional
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+from utils.logger import get_logger
+from emulator.interface import EmulatorInterface
+from emulator.game_state import GameState
+
+# Get logger for this module
+logger = get_logger("agents")
 
 class BaseAgent(ABC):
-    """Base class for all AI agents in the system."""
+    """Base class for all agents."""
     
-    def __init__(self, emulator: EmulatorInterface, config: Dict[str, Any]):
-        """
-        Initialize the base agent.
+    def __init__(self, name: str, emulator: EmulatorInterface):
+        """Initialize the base agent.
         
         Args:
-            emulator: Interface to the GBA emulator
-            config: Configuration dictionary for the agent
+            name: Agent name
+            emulator: EmulatorInterface instance
         """
+        self.name = name
         self.emulator = emulator
-        self.config = config
-        self.name = self.__class__.__name__
-        logger.info(f"Initializing {self.name}")
-        
+        logger.info(f"Initialized {self.name} agent")
+    
     @abstractmethod
-    def act(self, state: GameState) -> bool:
-        """
-        Process the current game state and take appropriate action.
+    def analyze_state(self, state: GameState) -> Optional[Dict[str, Any]]:
+        """Analyze the current game state and decide on an action.
         
         Args:
             state: Current game state
             
         Returns:
-            True if action was successful, False otherwise
+            Optional action parameters
         """
         pass
     
     @abstractmethod
-    def can_handle(self, state: GameState) -> bool:
+    def execute_action(self, action_params: Dict[str, Any]) -> bool:
+        """Execute an action with the given parameters.
+        
+        Args:
+            action_params: Action parameters
+            
+        Returns:
+            True if action was successful
         """
-        Determine if this agent can handle the current game state.
+        pass
+    
+    def update(self, state: GameState) -> bool:
+        """Update the agent with the current game state.
         
         Args:
             state: Current game state
             
         Returns:
-            True if this agent can handle the current state
-        """
-        pass
-    
-    def update_config(self, new_config: Dict[str, Any]) -> None:
-        """
-        Update the agent's configuration.
-        
-        Args:
-            new_config: New configuration dictionary
-        """
-        self.config.update(new_config)
-        logger.debug(f"Updated {self.name} config: {new_config}")
-    
-    def get_status(self) -> Dict[str, Any]:
-        """
-        Get the current status of the agent.
-        
-        Returns:
-            Dictionary containing agent status information
-        """
-        return {
-            "name": self.name,
-            "config": self.config,
-            "active": self.can_handle(self.emulator.get_game_state())
-        }
-    
-    def _log_action(self, action: str, success: bool, details: Optional[str] = None) -> None:
-        """
-        Log an action taken by the agent.
-        
-        Args:
-            action: Name of the action
-            success: Whether the action was successful
-            details: Optional additional details
-        """
-        status = "SUCCESS" if success else "FAILED"
-        message = f"{self.name} {action}: {status}"
-        if details:
-            message += f" - {details}"
-        
-        if success:
-            logger.info(message)
-        else:
-            logger.error(message)
-    
-    def _safe_execute(self, action_name: str, action_func: callable, *args, **kwargs) -> Any:
-        """
-        Safely execute an action with error handling and logging.
-        
-        Args:
-            action_name: Name of the action for logging
-            action_func: Function to execute
-            *args: Positional arguments for the function
-            **kwargs: Keyword arguments for the function
-            
-        Returns:
-            Result of the action function
+            True if agent took action
         """
         try:
-            result = action_func(*args, **kwargs)
-            self._log_action(action_name, True)
-            return result
+            # Analyze state
+            action_params = self.analyze_state(state)
+            if action_params is None:
+                return False
+            
+            # Execute action
+            logger.debug(f"{self.name} executing action: {action_params}")
+            success = self.execute_action(action_params)
+            
+            if success:
+                logger.debug(f"{self.name} successfully executed action")
+            else:
+                logger.warning(f"{self.name} failed to execute action")
+            
+            return success
+            
         except Exception as e:
-            self._log_action(action_name, False, str(e))
-            logger.exception(f"Error in {self.name} during {action_name}")
-            return None 
+            logger.error(f"Error in {self.name} update: {e}")
+            return False
+    
+    def handle_error(self, error: Exception) -> None:
+        """Handle an error that occurred during agent operation.
+        
+        Args:
+            error: Exception that occurred
+        """
+        logger.error(f"Error in {self.name}: {error}")
+        # Subclasses can implement specific error handling 
