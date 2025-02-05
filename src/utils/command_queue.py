@@ -43,19 +43,24 @@ class CommandQueue:
         while not self.is_empty():
             command = self.commands.pop(0)
             try:
+                # Add delay before command if specified
+                if command.delay > 0:
+                    time.sleep(command.delay)
+                
                 # Execute command based on type
                 if command.command_type == 'button_press':
                     button = command.args.get('button')
                     duration = command.args.get('duration', 0.1)
+                    logger.debug(f"Executing button press: {button} for {duration}s")
                     emulator.press_button(button, duration=duration)
                     
                 elif command.command_type == 'wait':
                     duration = command.args.get('duration', 1.0)
+                    logger.debug(f"Waiting for {duration}s")
                     time.sleep(duration)
                     
-                # Add delay after command if specified
-                if command.delay > 0:
-                    time.sleep(command.delay)
+                else:
+                    logger.warning(f"Unknown command type: {command.command_type}")
                     
             except Exception as e:
                 logger.error(f"Error executing command {command}: {e}")

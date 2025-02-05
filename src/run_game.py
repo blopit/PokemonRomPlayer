@@ -21,7 +21,7 @@ load_dotenv()
 from utils.logger import setup_logger, get_logger
 from utils.screen_analyzer import ScreenAnalyzer
 from utils.command_queue import CommandQueue
-from ai.command_generator import CommandGenerator
+from utils.webhook_handler import WebhookHandler
 from emulator.interface import EmulatorInterface
 from utils.screenshot import capture_window, take_screenshot
 
@@ -34,6 +34,9 @@ def parse_args():
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--screenshot-interval", type=float, default=1.0, 
                       help="Interval between screenshots in seconds")
+    parser.add_argument("--webhook-url", type=str,
+                      default="https://blopit.app.n8n.cloud/webhook/command-list",
+                      help="URL of the command webhook")
     return parser.parse_args()
 
 def main():
@@ -47,7 +50,7 @@ def main():
     # Initialize components
     emulator = EmulatorInterface(args.rom_path)
     command_queue = CommandQueue()
-    command_generator = CommandGenerator()
+    webhook_handler = WebhookHandler(args.webhook_url)
     
     if not emulator.start():
         sys.exit(1)
@@ -76,6 +79,7 @@ def main():
         }
         
         last_screenshot_time = 0
+        last_screenshot_path = None
         
         # Create screenshots directory
         os.makedirs("screenshots", exist_ok=True)
@@ -99,18 +103,18 @@ def main():
                         screenshot_path = os.path.join("screenshots", f"screenshot_{timestamp}.png")
                         cv2.imwrite(screenshot_path, img)
                         logger.info(f"Saved screenshot to {screenshot_path}")
+                        last_screenshot_path = screenshot_path
                     except Exception as e:
                         logger.error(f"Failed to save screenshot: {e}")
                     last_screenshot_time = current_time
                 
-                # If queue is empty, generate next batch of commands
-                if command_queue.is_empty():
-                    commands = command_generator.generate_commands(screen_state, context)
-                    if commands:
-                        logger.info(f"Generated {len(commands)} new commands")
-                        command_queue.add_commands(commands)
+                # If queue is empty and we have a screenshot, get commands from webhook
+                if command_queue.is_empty() and last_screenshot_path:
+                    success = webhook_handler.process_screenshot_to_queue(last_screenshot_path, command_queue)
+                    if success:
+                        logger.info(f"Got new commands from webhook")
                     else:
-                        logger.warning("No commands generated, waiting...")
+                        logger.warning("No commands from webhook, waiting...")
                         time.sleep(1)
                         continue
                     

@@ -3,7 +3,6 @@ Input handler for emulator controls
 """
 
 import time
-import pyautogui
 import platform
 import subprocess
 from typing import Dict, Optional
@@ -12,18 +11,28 @@ from utils.logger import get_logger
 # Get logger for this module
 logger = get_logger("pokemon_player")
 
-# Key mappings for GBA controls
-KEY_MAPPINGS = {
-    'up': 'up',
-    'down': 'down', 
-    'left': 'left',
-    'right': 'right',
-    'a': 'x',  # A button mapped to X
-    'b': 'z',  # B button mapped to Z
-    'l': 'a',  # L button mapped to A
-    'r': 's',  # R button mapped to S
-    'start': 'enter',
-    'select': 'backspace'
+# Import Quartz on macOS
+if platform.system() == "Darwin":
+    from Quartz import (
+        CGEventCreateKeyboardEvent,
+        CGEventPostToPid,
+        CGEventSetFlags,
+        kCGHIDEventTap,
+        kCGEventFlagMaskCommand
+    )
+
+# Virtual key codes for macOS
+VK_MAP = {
+    'up': 126,    # Up arrow
+    'down': 125,  # Down arrow
+    'left': 123,  # Left arrow
+    'right': 124, # Right arrow
+    'x': 7,       # X key (for A button)
+    'z': 6,       # Z key (for B button)
+    'a': 0,       # A key (for L button)
+    's': 1,       # S key (for R button)
+    'enter': 36,  # Enter/Return (for Start)
+    'backspace': 51, # Delete/Backspace (for Select)
 }
 
 class InputHandler:
@@ -31,9 +40,33 @@ class InputHandler:
     
     def __init__(self):
         """Initialize input handler"""
-        # Set up pyautogui
-        pyautogui.PAUSE = 0.1  # Add small delay between actions
-        pyautogui.FAILSAFE = True
+        self.emulator_pid = None
+        self.focused = False
+        
+    def get_mgba_pid(self) -> Optional[int]:
+        """Get the process ID of mGBA"""
+        if platform.system() == "Darwin":
+            script = 'tell application "System Events" to get unix id of first process whose name contains "mGBA"'
+            try:
+                result = subprocess.run(["osascript", "-e", script], 
+                                      capture_output=True, text=True, check=True)
+                return int(result.stdout.strip())
+            except (subprocess.CalledProcessError, ValueError) as e:
+                logger.error(f"Could not get mGBA process ID: {e}")
+                return None
+        return None
+        
+    def send_key_event(self, key_code: int, key_down: bool):
+        """Send a key event to the mGBA process using Quartz"""
+        if not self.emulator_pid:
+            return
+            
+        try:
+            event = CGEventCreateKeyboardEvent(None, key_code, key_down)
+            CGEventPostToPid(self.emulator_pid, event)
+            time.sleep(0.01)  # Small delay between key events
+        except Exception as e:
+            logger.error(f"Error sending key event: {e}")
         
     def press_button(self, button: str, duration: float = 0.1):
         """Press a button for the specified duration.
@@ -43,24 +76,32 @@ class InputHandler:
             duration: How long to hold the button in seconds
         """
         try:
-            # Get the mapped key
-            key = KEY_MAPPINGS.get(button.lower())
+            # Ensure we have the emulator PID
+            if not self.emulator_pid:
+                self.emulator_pid = self.get_mgba_pid()
+                if not self.emulator_pid:
+                    logger.error("Could not find mGBA process")
+                    return
+                    
+            # Get the virtual key code
+            key = VK_MAP.get(button.lower())
             if not key:
                 logger.error(f"Unknown button: {button}")
                 return
                 
-            logger.debug(f"Pressing {button} (mapped to {key}) for {duration}s")
+            logger.debug(f"Pressing {button} (key code {key}) for {duration}s")
             
             # Press and hold the key
-            pyautogui.keyDown(key)
+            self.send_key_event(key, True)
             time.sleep(duration)
-            pyautogui.keyUp(key)
+            self.send_key_event(key, False)
             
         except Exception as e:
             logger.error(f"Error pressing button {button}: {e}")
             # Make sure to release the key
             try:
-                pyautogui.keyUp(key)
+                if key:
+                    self.send_key_event(key, False)
             except:
                 pass
             raise
@@ -73,10 +114,17 @@ class InputHandler:
             duration: How long to hold the buttons in seconds
         """
         try:
-            # Get mapped keys
+            # Ensure we have the emulator PID
+            if not self.emulator_pid:
+                self.emulator_pid = self.get_mgba_pid()
+                if not self.emulator_pid:
+                    logger.error("Could not find mGBA process")
+                    return
+                    
+            # Get virtual key codes
             keys = []
             for button in buttons:
-                key = KEY_MAPPINGS.get(button.lower())
+                key = VK_MAP.get(button.lower())
                 if key:
                     keys.append(key)
                 else:
@@ -85,24 +133,24 @@ class InputHandler:
             if not keys:
                 return
                 
-            logger.debug(f"Pressing {buttons} (mapped to {keys}) for {duration}s")
+            logger.debug(f"Pressing {buttons} (key codes {keys}) for {duration}s")
             
             # Press all keys
             for key in keys:
-                pyautogui.keyDown(key)
+                self.send_key_event(key, True)
                 
             time.sleep(duration)
             
             # Release all keys
             for key in reversed(keys):
-                pyautogui.keyUp(key)
+                self.send_key_event(key, False)
                 
         except Exception as e:
             logger.error(f"Error pressing buttons {buttons}: {e}")
             # Make sure to release all keys
             try:
                 for key in keys:
-                    pyautogui.keyUp(key)
+                    self.send_key_event(key, False)
             except:
                 pass
             raise
@@ -117,27 +165,27 @@ class InputHandler:
             True if window was focused successfully
         """
         try:
+            # Get the emulator PID if we don't have it
+            if not self.emulator_pid:
+                self.emulator_pid = self.get_mgba_pid()
+                if not self.emulator_pid:
+                    logger.error("Could not find mGBA process")
+                    return False
+            
             if platform.system() == "Darwin":
                 # On macOS, use AppleScript to focus window
-                script = f'''
-                tell application "System Events"
-                    tell process "{window_title}"
-                        set frontmost to true
-                    end tell
+                script = '''
+                tell application "mGBA"
+                    activate
                 end tell
                 '''
                 subprocess.run(['osascript', '-e', script], check=True)
-            else:
-                # On other platforms, use pyautogui's window functions
-                windows = pyautogui.getWindowsWithTitle(window_title)
-                if not windows:
-                    logger.warning(f"Could not find window with title: {window_title}")
-                    return False
-                windows[0].activate()
-            
-            # Give window time to focus
-            time.sleep(0.5)
-            return True
+                
+                # Give window time to focus
+                time.sleep(0.5)
+                return True
+                
+            return False
             
         except Exception as e:
             logger.warning(f"Could not focus window: {e}")
