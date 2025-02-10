@@ -132,140 +132,125 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 
 ## Background and Motivation
 
-The goal is to create an advanced Pokemon ROM player system with AI capabilities that will accomplish three major objectives in sequence:
-1. Complete the main story campaign
-2. Catch all Pokemon to complete the Pokedex
-3. Level up all caught Pokemon to level 100
-
-This system leverages modern AI techniques, emulation technology, and a crew-based AI framework to achieve robust gameplay automation, strategic decision-making, and long-term progress tracking.
+The goal is to enhance our existing Pokemon ROM player system with CrewAI capabilities to create a more robust and coordinated multi-agent system. The current system already has specialized agents (battle, navigation, menu) but can benefit from CrewAI's structured task pipeline and improved coordination.
 
 ## Key Challenges and Analysis
 
-1. Emulator Integration:
-   - ✅ Interfacing with a GBA emulator for stable gameplay
-   - ✅ Reliable memory reading and input simulation using Quartz for direct process input
-   - ⏳ Handling save states and game-state persistence
+1. Integration Strategy:
+   - ✅ Current system uses specialized agents with good separation of concerns
+   - ✅ Existing agent manager provides good foundation for coordination
+   - ⏳ Need to bridge CrewAI's task pipeline with our existing agent system
+   - ⏳ Must preserve current functionality while adding CrewAI capabilities
 
-2. Game State Understanding:
-   - ✅ Screenshot capture and analysis via webhook AI
-   - ✅ Command generation from visual game state
-   - ⏳ Tracking progress across story, Pokedex, and training
+2. System Architecture:
+   - ✅ Existing modular architecture with clear agent responsibilities
+   - ✅ Good logging and error handling infrastructure
+   - ⏳ Need to add CrewAI task definitions and crew setup
+   - ⏳ Must implement tool interfaces for CrewAI agents
 
-3. AI Decision Making:
-   - ✅ Basic command generation from screenshots
-   - ✅ Button press and hold command execution
-   - ⏳ Complex battle strategies and type matchups
-   - ⏳ Navigation and pathfinding
-   - ⏳ Resource management
-
-4. Technical Architecture:
-   - ✅ Screenshot capture and webhook integration
-   - ✅ Command queue system
-   - ✅ Direct process input using Quartz
-   - ⏳ Error recovery and state persistence
-
-## Verifiable Success Criteria
-
-1. Story Completion: Defeat all gym leaders, complete main storyline quests, and win Elite Four battles.
-2. Pokemon Collection: Complete the regional Pokedex with verified Pokemon catches.
-3. Level Achievement: All caught Pokemon reach level 100 using efficient training strategies.
-4. System Reliability: Stable emulator integration, effective error handling, and persistent progress recovery.
+3. Technical Requirements:
+   - ✅ Python environment with necessary dependencies
+   - ✅ Emulator interface and game state tracking
+   - ⏳ CrewAI integration and configuration
+   - ⏳ Enhanced error recovery and state persistence
 
 ## High-level Task Breakdown
 
-Phase 1: Infrastructure Setup
-1. Set up Python environment and dependencies
-2. Integrate with GBA emulator
-3. Implement basic memory reading and input simulation
-4. Create initial state management system
+Phase 1: CrewAI Integration Setup
+1. Create src/crew/ directory for CrewAI components
+2. Implement CrewAI agent wrappers for existing agents
+3. Define task pipeline in YAML configuration
+4. Create crew manager to coordinate with agent_manager.py
 
-Phase 2: Core AI System
-1. Develop battle AI agent
-2. Create navigation and pathfinding system
-3. Implement inventory management
-4. Build progress tracking system
+Phase 2: Tool Implementation
+1. Implement screen capture tool interface
+2. Create image processing and OCR wrapper
+3. Add game state interpretation tool
+4. Build input simulation interface
 
-Phase 3: Story Mode AI
-1. Implement quest tracking
-2. Create gym battle strategies
-3. Develop Elite Four preparation system
-4. Build story progression management
-
-Phase 4: Collection System
-1. Create Pokedex tracking
-2. Implement Pokemon catching strategies
-3. Develop location and encounter optimization
-4. Build PC box management
-
-Phase 5: Training System
-1. Create efficient leveling strategies
-2. Implement EXP optimization
-3. Develop training location selection
-4. Build multi-Pokemon training management
-
-## Basic Test Plan
-1. Emulator Validation:
-   - Perform a "Hello World" test using a known memory address to confirm reliable reading.
-   - Simulate basic inputs (e.g., moving the player character) to verify correct behavior.
-2. Early Error-Handling Checks:
-   - Deliberately provoke unexpected game states (e.g., invalid save data) to stress-test error recovery.
-   - Interrupt emulator sessions mid-action to ensure robust system restart.
-3. AI Basic Functionality:
-   - Confirm that the AI recognizes a simple battle scenario and selects a valid move.
-   - Ensure that pathfinding agents identify and move toward clearly defined goal locations.
+Phase 3: Pipeline Integration
+1. Connect CrewAI tasks to existing agent actions
+2. Implement state synchronization
+3. Add error recovery and retry logic
+4. Create progress tracking system
 
 ## Current Status / Progress Tracking
 
-Recent Achievements:
-1. Implemented webhook-based AI command generation
-2. Added reliable input handling using Quartz for direct process control
-3. Created command queue system for sequential execution
-4. Added detailed logging with AI reasoning display
-
-Current Focus:
-1. Testing and refining the AI's command generation
-2. Monitoring game progress and AI decision quality
-3. Identifying areas for improvement in command execution
+Current Implementation Status:
+- ✅ Created CrewAI directory structure
+- ✅ Implemented CrewBattleAgent wrapper
+- ✅ Created agent configuration (agents.yaml)
+- ✅ Created task configuration (tasks.yaml)
+- ✅ Implemented CrewManager with config loading
+- ✅ Implemented CrewNavigationAgent and CrewMenuAgent wrappers
+- ✅ Completed task creation and dependency handling
+- ✅ Implemented error recovery strategies
+- ✅ Created tool integration tests
+- ⏳ Need to implement agent integration tests
+- ⏳ Need to implement end-to-end tests
+- ⏳ Need to create documentation
 
 ## Next Steps and Action Items
 
-1. Immediate Tasks:
-   - Monitor AI decision quality and adjust as needed
-   - Add error recovery for failed commands
-   - Implement save state management
+1. Implement Agent Integration Tests:
+   ```
+   tests/integration/test_agents/
+   ├── test_battle_agent.py
+   ├── test_navigation_agent.py
+   └── test_menu_agent.py
+   ```
+   - Test agent initialization and configuration
+   - Test agent state management
+   - Test agent interactions with tools
+   - Test error handling and recovery
 
-2. Short-term Goals:
-   - Add battle state detection
-   - Implement battle strategy generation
-   - Create progress tracking system
+2. Implement End-to-End Tests:
+   ```
+   tests/e2e/
+   ├── test_battle_scenarios.py
+   ├── test_navigation_scenarios.py
+   └── test_complex_tasks.py
+   ```
+   - Test complete battle scenarios
+   - Test navigation between locations
+   - Test complex multi-agent tasks
+   - Test error recovery in real scenarios
 
-3. Medium-term Goals:
-   - Develop navigation system
-   - Add inventory management
-   - Implement Pokemon party optimization
+3. Create Documentation:
+   ```
+   docs/
+   ├── architecture.md
+   ├── configuration.md
+   ├── agents.md
+   ├── tools.md
+   └── testing.md
+   ```
+   - Document system architecture
+   - Document configuration options
+   - Document agent capabilities
+   - Document tool interfaces
+   - Document testing strategy
 
 ## Executor's Feedback or Assistance Requests
 
-Current Implementation Status:
-- ✅ Screenshot capture working
-- ✅ Webhook AI integration complete
-- ✅ Command queue system operational
-- ✅ Direct process input working
-- ⚠️ Need to monitor AI decision quality
-- ⚠️ Need to implement error recovery
+I have completed implementing the tool integration tests, which cover:
+1. Screen capture functionality
+2. Input simulation
+3. Image processing
+4. Error handling scenarios
+
+The tests are structured to verify both normal operation and error cases. Some TODOs remain for creating test images with specific content (battle UI elements, dialog text, etc.).
+
+Would you like me to proceed with implementing the agent integration tests next?
 
 ## Lessons Learned
 
-1. Input Handling:
-   - Using Quartz for direct process input is more reliable than pyautogui
-   - Button mapping needs careful consideration for different emulator configurations
+1. System Design:
+   - Existing agent system provides good foundation
+   - Need to maintain backward compatibility
+   - CrewAI integration should enhance, not replace current functionality
 
-2. AI Integration:
-   - Webhook responses need proper error handling
-   - AI reasoning helps debug command sequences
-   - Button name standardization is important
-
-3. System Design:
-   - Modular architecture allows easy component updates
-   - Logging is crucial for debugging AI behavior
-   - Command queue provides good execution control
+2. Implementation Strategy:
+   - Use wrapper pattern to integrate CrewAI with existing agents
+   - Keep configuration in YAML for flexibility
+   - Maintain strong typing and error handling

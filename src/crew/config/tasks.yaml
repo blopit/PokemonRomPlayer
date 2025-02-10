@@ -1,0 +1,120 @@
+# CrewAI Task Configurations
+
+# Screen Analysis Tasks
+screen_capture:
+  description: "Capture and process the current game screen"
+  agent: "screen_capture_agent"
+  expected_output: "Processed screenshot and OCR text"
+  parameters:
+    capture_interval: 1.0  # seconds
+    region: "game_window"
+  retries: 3
+  timeout: 2.0
+
+game_state_analysis:
+  description: "Analyze game state from screen and memory"
+  agent: "game_interpreter_agent"
+  expected_output: "Structured game state data"
+  parameters:
+    analyze_text: true
+    analyze_sprites: true
+    detect_battle: true
+  retries: 2
+  timeout: 3.0
+
+# Battle Tasks
+battle_strategy:
+  description: "Generate and execute battle strategies"
+  agent: "battle_agent"
+  expected_output: "List of battle commands"
+  parameters:
+    consider_types: true
+    consider_status: true
+    use_items: true
+  retries: 2
+  timeout: 5.0
+
+pokemon_switching:
+  description: "Manage Pokemon team composition during battle"
+  agent: "battle_agent"
+  expected_output: "Pokemon switch commands"
+  parameters:
+    hp_threshold: 0.3
+    type_matching: true
+  retries: 2
+  timeout: 3.0
+
+# Navigation Tasks
+pathfinding:
+  description: "Navigate to target location in game world"
+  agent: "navigation_agent"
+  expected_output: "Movement commands"
+  parameters:
+    avoid_trainers: false
+    optimize_path: true
+  retries: 3
+  timeout: 5.0
+
+location_tracking:
+  description: "Track and update current location in game world"
+  agent: "navigation_agent"
+  expected_output: "Updated location data"
+  parameters:
+    use_landmarks: true
+    store_history: true
+  retries: 2
+  timeout: 2.0
+
+# Menu Tasks
+inventory_management:
+  description: "Manage items and Pokemon storage"
+  agent: "menu_agent"
+  expected_output: "Menu interaction commands"
+  parameters:
+    auto_sort: true
+    maintain_supplies: true
+  retries: 2
+  timeout: 4.0
+
+healing_management:
+  description: "Manage Pokemon healing and status recovery"
+  agent: "menu_agent"
+  expected_output: "Healing commands"
+  parameters:
+    use_potions: true
+    use_status_items: true
+  retries: 2
+  timeout: 3.0
+
+# Task Dependencies
+dependencies:
+  battle_strategy:
+    - screen_capture
+    - game_state_analysis
+  pokemon_switching:
+    - game_state_analysis
+  pathfinding:
+    - screen_capture
+    - location_tracking
+  inventory_management:
+    - game_state_analysis
+
+# Task Priorities
+priorities:
+  battle_strategy: 100
+  pokemon_switching: 90
+  healing_management: 80
+  inventory_management: 70
+  pathfinding: 60
+  location_tracking: 50
+  screen_capture: 40
+  game_state_analysis: 30
+
+# Error Recovery
+error_handling:
+  default_retry_delay: 1.0
+  max_consecutive_failures: 3
+  recovery_actions:
+    battle_failure: "retreat"
+    navigation_failure: "return_to_last_center"
+    menu_failure: "reset_to_main" 

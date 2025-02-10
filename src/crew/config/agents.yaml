@@ -1,0 +1,50 @@
+# CrewAI Agent Configurations
+
+battle_agent:
+  name: "CrewBattleAgent"
+  goal: "Execute optimal battle strategies in Pokemon battles"
+  backstory: "Expert Pokemon battle strategist specializing in type matchups and move selection"
+  verbose: true
+  llm_provider: "openai"
+  priority: 100  # Highest priority for battle scenarios
+  parameters:
+    switch_threshold: 0.3  # HP threshold for considering Pokemon switch
+    status_move_weight: 0.4  # Weight for status moves vs. damage moves
+
+navigation_agent:
+  name: "CrewNavigationAgent"
+  goal: "Navigate the Pokemon world efficiently and reach objectives"
+  backstory: "Expert pathfinder with deep knowledge of Pokemon world geography"
+  verbose: true
+  llm_provider: "openai"
+  priority: 50  # Medium priority for exploration
+  parameters:
+    mode: "explore"  # Default mode for navigation
+    path_optimization: true
+
+menu_agent:
+  name: "CrewMenuAgent"
+  goal: "Handle menu interactions and inventory management"
+  backstory: "UI/UX expert specializing in Pokemon game menus and item management"
+  verbose: true
+  llm_provider: "openai"
+  priority: 75  # High priority for menu management
+  parameters:
+    auto_heal: true  # Automatically use healing items when needed
+    inventory_threshold: 0.2  # Restock items when below 20%
+
+# Agent Interaction Rules
+interaction_rules:
+  - "Battle agent takes precedence during combat scenarios"
+  - "Navigation agent yields to menu agent during inventory management"
+  - "Menu agent can interrupt navigation for critical item usage"
+  - "Battle agent can request menu agent for item usage during battle"
+
+# Error Recovery Settings
+error_recovery:
+  max_retries: 3
+  retry_delay: 1.0  # seconds
+  fallback_strategies:
+    battle: "use_strongest_move"
+    navigation: "return_to_pokecenter"
+    menu: "close_all_menus" 
